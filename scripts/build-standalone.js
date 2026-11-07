@@ -1,5 +1,5 @@
 // Cross-platform Next.js standalone build script.
-// Works on macOS, Windows, and Linux. Replaces the bash-only "cp -r" commands.
+// Works on macOS, Windows, and Linux CI environments.
 
 const { execSync } = require('child_process')
 const fs = require('fs')
@@ -20,8 +20,13 @@ function copyDir(src, dest) {
   }
 }
 
+// Use npx to find next, or node_modules/.bin/next directly
+const nextBin = fs.existsSync('./node_modules/.bin/next')
+  ? './node_modules/.bin/next'
+  : 'npx next'
+
 console.log('Building Next.js standalone...')
-run('next build')
+run(`${nextBin} build`)
 
 // Copy static assets into standalone (cross-platform)
 const staticSrc = path.join('.next', 'static')
@@ -52,3 +57,4 @@ fs.writeFileSync(path.join(outDir, 'index.html'), `<!DOCTYPE html>
 </html>`)
 
 console.log('✓ Build complete')
+
