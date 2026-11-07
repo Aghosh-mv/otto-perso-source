@@ -1,0 +1,50 @@
+{
+  "name": "Otto Perso — Control Panel",
+  "short_name": "Otto",
+  "description": "A digital employee that lives on your computer. Direct desktop automation, multi-agent coordination, transparent memory.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FFFFFF",
+  "theme_color": "#0A0A0A",
+  "categories": ["productivity", "utilities", "business"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Home",
+      "url": "/?view=dashboard",
+      "description": "Otto's overview"
+    },
+    {
+      "name": "Emergency Stop",
+      "short_name": "Stop",
+      "url": "/?action=emergency-stop",
+      "description": "Halt all agents immediately"
+    },
+    {
+      "name": "Tasks",
+      "short_name": "Tasks",
+      "url": "/?view=tasks"
+    }
+  ]
+}
