@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Build output
+.next/
+build/
+out/
+dist/
+
+# Database
+db/*.db
+db/*.db-journal
+
+# Downloads folder (built artifacts, not source)
+download/
+otto-downloads/
+
+# Logs
+*.log
+dev.log
+server.log
+
+# Environment (contains secrets — never commit)
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tool results / sandbox artifacts
+tool-results/
+.zscripts/
+
+# Vercel
+.vercel/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Upload folder (user-uploaded files)
+upload/
+
+# Skills (sandbox-only)
+skills/
+
+# Examples / tests (not needed in production)
+examples/
+tests/
