@@ -51,7 +51,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Some(handle) = window.app_handle().try_state::<ServerHandle>() {
                     if let Ok(mut guard) = handle.child.lock() {
-                        if let Some(child) = guard.take() {
+                        if let Some(mut child) = guard.take() {
                             let _ = child.kill();
                         }
                     }
