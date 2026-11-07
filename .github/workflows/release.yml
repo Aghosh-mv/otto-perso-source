@@ -1,0 +1,108 @@
+name: Release Otto Perso
+
+# This workflow builds real native installers for macOS, Windows, and Linux
+# and attaches them to a GitHub release. Free — runs on GitHub's VMs.
+#
+# How to use:
+# 1. Push your code to GitHub (github.com/YOUR_USERNAME/otto-perso)
+# 2. Create a tag: git tag v1.0.0 && git push origin v1.0.0
+# 3. This workflow runs automatically — builds all 3 platforms in parallel
+# 4. Native installers appear on your GitHub Releases page:
+#    - Otto-Perso_1.0.0_x64.dmg (macOS Intel)
+#    - Otto-Perso_1.0.0_aarch64.dmg (macOS Apple Silicon)
+#    - Otto-Perso_1.0.0_x64-setup.exe (Windows)
+#    - Otto-Perso_1.0.0_amd64.AppImage (Linux)
+#    - otto-perso_1.0.0_amd64.deb (Linux Debian/Ubuntu)
+# 5. Update your marketing site download buttons to point to these URLs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # allows manual trigger from GitHub Actions tab
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-intel
+            os: macos-13
+            target: x86_64-apple-darwin
+            args: '--target x86_64-apple-darwin'
+          - platform: macos-arm
+            os: macos-14
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin'
+          - platform: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+          - platform: linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ''
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Build Next.js standalone
+        run: bun run build:next-standalone
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Otto Perso ${{ github.ref_name }}'
+          releaseBody: 'See the assets below to download Otto Perso for your platform.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Upload portable zip (Linux only)
+        if: matrix.platform == 'linux'
+        run: |
+          bun run build:portable
+          gh release upload ${{ github.ref_name }} build/otto-perso-*.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
