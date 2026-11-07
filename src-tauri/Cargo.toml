@@ -1,0 +1,23 @@
+[package]
+name = "otto-perso"
+version = "1.0.0"
+description = "Otto Perso — your digital employee"
+authors = ["Otto Perso"]
+edition = "2021"
+rust-version = "1.70"
+
+[lib]
+name = "otto_perso_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["shell-sidecar"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
