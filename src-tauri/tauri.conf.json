@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "identifier": "com.ottoperso.app",
   "build": {
-    "beforeBuildCommand": "bun run build:next-standalone",
-    "beforeDevCommand": "bun run dev:next",
+    "beforeBuildCommand": "node scripts/build-standalone.js",
+    "beforeDevCommand": "npm run dev:next",
     "devUrl": "http://localhost:3000",
     "frontendDist": "../out"
   },
