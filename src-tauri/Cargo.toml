@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Otto Perso — your digital employee"
 authors = ["Otto Perso"]
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.90"
 
 [lib]
 name = "otto_perso_lib"
@@ -15,7 +15,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
