@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Otto Perso",
+  "version": "1.0.0",
+  "identifier": "com.ottoperso.app",
+  "build": {
+    "beforeBuildCommand": "bun run build:next-standalone",
+    "beforeDevCommand": "bun run dev:next",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../out"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Otto Perso",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "theme": "Light"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/*"
+    ],
+    "copyright": "© 2026 Otto Perso",
+    "category": "Productivity",
+    "shortDescription": "Your digital employee. Lives on your computer.",
+    "longDescription": "Otto Perso is an autonomous agent that lives on your computer. It reads your files, browses the web, manages your schedule, and spawns worker brains for parallel tasks — all through a chat interface."
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": true,
+      "scope": [
+        {
+          "name": "otto-server",
+          "cmd": "otto-server",
+          "args": []
+        }
+      ]
+    }
+  }
+}
