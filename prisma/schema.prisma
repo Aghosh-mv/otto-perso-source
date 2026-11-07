@@ -1,0 +1,289 @@
+// Otto Perso — Control Panel schema
+// SQLite-backed; the Obsidian-style vault on disk is the source of truth
+// for memory notes, this DB is the fast search + activity index.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Autonomy ──────────────────────────────────────────────────────────────
+model AutonomySetting {
+  id           String   @id @default(cuid())
+  level        Int      @unique // 1..5
+  name         String   // "Ask Before Editing" etc.
+  tagline      String   // short description
+  canDo        String   // JSON array of strings
+  cannotDo     String   // JSON array of strings
+  warnings     String?  // JSON array of strings, optional
+  isCurrent    Boolean  @default(false)
+  customRules  String?  // JSON — user overrides per level
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── Tasks ─────────────────────────────────────────────────────────────────
+model Task {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  status        String   @default("queued") // queued | planning | executing | waiting_approval | done | failed | cancelled | blocked
+  priority      String   @default("normal") // low | normal | high | critical
+  autonomyLevel Int      @default(2)
+  runMode       String   @default("foreground") // foreground | background | parallel
+  assigneeId    String?  // Agent id (worker or main)
+  assignee      Agent?   @relation("Assignee", fields: [assigneeId], references: [id])
+  modelId       String?  // preferred model
+  recipeId      String?  // spawned from recipe
+  result        String?  // JSON outcome
+  blockedBy     String   @default("[]") // JSON array of task IDs this task waits on
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  @@index([status])
+  @@index([assigneeId])
+}
+
+// ─── Agents (Otto + workers) ───────────────────────────────────────────────
+model Agent {
+  id          String   @id @default(cuid())
+  name        String
+  kind        String   @default("main") // main | worker | custom
+  status      String   @default("idle") // idle | thinking | executing | waiting | sleeping | stopped
+  parentId    String?  // spawning chain
+  modelName   String?  // bound model
+  task        String?  // current task description (human-readable)
+  confidence  Float    @default(0) // 0..1 self-assessed
+  spawnedAt   DateTime @default(now())
+  lastBeatAt  DateTime @default(now()) // heartbeat
+
+  assignedTasks Task[] @relation("Assignee")
+
+  @@index([parentId])
+  @@index([status])
+}
+
+// ─── Vault Notes (Obsidian-style, Markdown on disk mirrored here) ──────────
+model VaultNote {
+  id         String   @id @default(cuid())
+  title      String
+  category   String   @default("general") // general | decision | preference | pattern | memory | recipe | log
+  tags       String   @default("") // comma-separated
+  frontmatter String  @default("{}") // JSON object
+  body       String   @default("") // Markdown body
+  filePath   String?  // path on disk if synced
+  pinned     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ─── Credentials (Otto sees only category + label, never the secret) ───────
+model Credential {
+  id           String   @id @default(cuid())
+  label        String
+  category     String   // banking | email | social | work | cloud | api | other
+  issuer       String?  // e.g. "Chase", "Gmail", "OpenAI"
+  maskedValue  String   // e.g. "•••• 4242" — display only
+  encryptedRef String   // pointer to encrypted blob (never decrypted in app)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ─── Model Providers ───────────────────────────────────────────────────────
+model ModelProvider {
+  id         String   @id @default(cuid())
+  name       String
+  kind       String   // ollama | openai | anthropic | custom | otto-bundled
+  endpoint   String?
+  apiKeyRef  String?  // pointer to credential vault, never stored in plaintext
+  isDefault  Boolean  @default(false)
+  isActive   Boolean  @default(true)
+  models     String   @default("[]") // JSON array of model names
+  latencyMs  Int      @default(0) // last known latency
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Recipes (reusable automation workflows) ───────────────────────────────
+model Recipe {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  category    String   @default("general") // reporting | research | file | email | scheduling | devops | custom
+  steps       String   // JSON array of step objects
+  estMinutes  Int      @default(5)
+  isBuiltIn   Boolean  @default(false)
+  isFavorite  Boolean  @default(false)
+  runCount    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ─── Activity Timeline (every Otto action, with undo support) ──────────────
+model ActivityLog {
+  id            String   @id @default(cuid())
+  agentId       String?
+  agentName     String?
+  action        String   // e.g. "file.write", "email.draft", "ui.click"
+  target        String?  // what was touched
+  summary       String   // human-readable
+  autonomyLevel Int      @default(2)
+  riskTier      String   @default("low") // low | medium | high | critical
+  undoable      Boolean  @default(false)
+  undone        Boolean  @default(false)
+  snapshotRef   String?  // pointer to before-state snapshot
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([agentId])
+  @@index([riskTier])
+}
+
+// ─── Proactive Prompts (Otto initiates, doesn't just respond) ──────────────
+model ProactivePrompt {
+  id             String   @id @default(cuid())
+  content        String
+  suggestedAction String? // e.g. "Start Q3 report prep"
+  trigger        String?  // pattern | schedule | observation
+  confidence     Float    @default(0.7)
+  status         String   @default("pending") // pending | accepted | dismissed | snoozed
+  createdAt      DateTime @default(now())
+  resolvedAt     DateTime?
+
+  @@index([status])
+}
+
+// ─── System State (singleton-ish rows for global prefs) ────────────────────
+model SystemState {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String   // JSON
+  updatedAt       DateTime @updatedAt
+}
+
+// ─── Custom Bots (user-defined specialized agents) ─────────────────────────
+model CustomBot {
+  id              String   @id @default(cuid())
+  name            String
+  description     String   @default("")
+  systemPrompt    String   @default("")
+  modelName       String   @default("")  // preferred model
+  allowedActions  String   @default("[]") // JSON array: ["web.search", "vault.read", ...]
+  autonomyCap     Int      @default(2)    // max autonomy this bot can run at
+  color           String   @default("ink") // ink | signal | warn | good
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+// ─── Conversations (the chat — Otto's main interface) ──────────────────────
+model Conversation {
+  id          String    @id @default(cuid())
+  title       String    @default("New conversation")
+  isPinned    Boolean   @default(false)
+  isArchived  Boolean   @default(false)
+  autonomyLevel Int     @default(2)  // snapshot of autonomy at last message
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+
+  @@index([isArchived])
+  @@index([updatedAt])
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role            String   // user | assistant | system | tool
+  content         String   @default("")
+  // For assistant messages: structured action cards (JSON array of {type, action, target, status, summary})
+  actions         String   @default("[]")
+  // For assistant messages: confidence in the response
+  confidence      Float    @default(0)
+  // For assistant messages: which autonomy level Otto was at when responding
+  autonomyLevel   Int      @default(2)
+  // For user messages: optional attachments (JSON array)
+  attachments     String   @default("[]")
+  // Streaming state: streaming | done | error
+  status          String   @default("done")
+  // Otto's internal reasoning (thought summaries from the model)
+  thoughts        String   @default("")
+  // Token usage for this message (prompt + completion)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  // Which model generated this
+  model           String   @default("")
+  createdAt       DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+// ─── Usage tracking (rate limit enforcement) ───────────────────────────────
+model UsageEvent {
+  id              String   @id @default(cuid())
+  // Bucket key: 'hourly:YYYY-MM-DD-HH' | 'daily:YYYY-MM-DD' | 'monthly:YYYY-MM' | 'peak:YYYY-MM-DD-HH'
+  bucket          String
+  // Count of messages in this bucket
+  count           Int      @default(0)
+  // Total tokens consumed in this bucket
+  tokens          Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([bucket])
+  @@index([bucket])
+}
+
+// ─── Users (local auth — credentials provider) ────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String   // bcrypt-style hash, never stored in plaintext
+  role          String   @default("owner") // owner | member | viewer
+  avatarColor   String   @default("ink") // ink | signal | warn | good
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  inviteCodes   InviteCode[] // codes this user has generated
+}
+
+// ─── Invite Codes (existing users invite new users) ───────────────────────
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique // the invite code, e.g. "OTTO-XK4P-7Q2M"
+  createdById String    // who generated this code (User id)
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  usedBy      String?   // email of the person who used it (null = unused)
+  usedAt      DateTime?
+  status      String    @default("active") // active | used | revoked
+  note        String?   // optional note from creator ("for Sarah", "twitter giveaway")
+  maxUses     Int       @default(1) // 1 = single-use, >1 = multi-use
+  useCount    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  @@index([code])
+  @@index([createdById])
+  @@index([status])
+}
