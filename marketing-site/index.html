@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Otto Perso — Your digital employee</title>
+  <meta name="description" content="Otto Perso is an autonomous agent that lives on your computer. Reads files, searches the web, spawns its own brains for parallel work. Download for macOS, Windows, Linux, iOS, and Android." />
+  <meta property="og:title" content="Otto Perso — Your digital employee" />
+  <meta property="og:description" content="An autonomous agent that lives on your computer. Not a chatbot — an agent that acts." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230A0A0A'/><text x='50' y='68' font-family='monospace' font-size='56' font-weight='bold' fill='white' text-anchor='middle'>O</text></svg>" />
+  <style>
+    /* ─── Reset ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; background: #FAFAF9; color: #0A0A0A; line-height: 1.5; }
+    a { color: inherit; text-decoration: none; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    img, svg { display: block; max-width: 100%; }
+    code, pre { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace; }
+
+    /* ─── Layout ─────────────────────────────────────────── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+    .section { padding: 96px 0; }
+    .section-dark { background: #0A0A0A; color: #fff; }
+    .section-white { background: #fff; border-top: 1px solid rgba(0,0,0,0.06); border-bottom: 1px solid rgba(0,0,0,0.06); }
+
+    /* ─── Nav ────────────────────────────────────────────── */
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; transition: all 0.3s; }
+    nav.scrolled { background: rgba(255,255,255,0.8); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(0,0,0,0.06); }
+    .nav-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+    .logo-mark { width: 32px; height: 32px; background: #0A0A0A; color: #fff; display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 14px; font-weight: 700; }
+    .nav-links { display: flex; align-items: center; gap: 32px; font-size: 14px; color: #525252; }
+    .nav-links a:hover { color: #0A0A0A; }
+    .nav-cta { font-size: 14px; font-weight: 500; padding: 8px 16px; background: #0A0A0A; color: #fff; transition: background 0.2s; }
+    .nav-cta:hover { background: #262626; }
+    @media (max-width: 768px) { .nav-links { display: none; } }
+
+    /* ─── Hero ───────────────────────────────────────────── */
+    .hero { padding: 160px 0 96px; text-align: center; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 999px; font-size: 12px; font-weight: 500; color: #525252; margin-bottom: 32px; }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+    .hero h1 { font-size: clamp(40px, 7vw, 72px); font-weight: 600; letter-spacing: -0.04em; line-height: 0.95; }
+    .hero h1 .accent { font-style: italic; font-weight: 300; color: #737373; }
+    .hero p { margin: 32px auto 0; font-size: clamp(16px, 2vw, 20px); color: #525252; max-width: 620px; line-height: 1.6; }
+    .hero-ctas { margin-top: 48px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+    @media (min-width: 640px) { .hero-ctas { flex-direction: row; justify-content: center; } }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 24px; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+    .btn-primary { background: #0A0A0A; color: #fff; }
+    .btn-primary:hover { background: #262626; transform: scale(1.02); }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-outline { background: #fff; border: 1px solid rgba(0,0,0,0.1); color: #0A0A0A; }
+    .btn-outline:hover { background: rgba(0,0,0,0.02); }
+    .hero-trust { margin-top: 32px; display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; font-size: 12px; color: #A3A3A3; }
+    .hero-trust span { display: flex; align-items: center; gap: 6px; }
+    .hero-trust svg { color: #16a34a; }
+
+    /* ─── Hero visual ────────────────────────────────────── */
+    .hero-visual { max-width: 900px; margin: 80px auto 0; position: relative; }
+    .hero-visual::before { content: ''; position: absolute; inset: -16px; background: linear-gradient(to bottom, rgba(0,0,0,0.03), transparent); border-radius: 16px; filter: blur(40px); z-index: -1; }
+    .mock-window { background: #fff; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 20px 60px -15px rgba(0,0,0,0.1); overflow: hidden; }
+    .mock-titlebar { height: 36px; background: #FAFAF9; border-bottom: 1px solid rgba(0,0,0,0.06); display: flex; align-items: center; padding: 0 16px; gap: 6px; }
+    .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .mock-dot.r { background: #FF5F57; } .mock-dot.y { background: #FEBC2E; } .mock-dot.g { background: #28C840; }
+    .mock-title { flex: 1; text-align: center; font-size: 11px; color: #A3A3A3; font-family: monospace; }
+    .mock-body { display: grid; grid-template-columns: 180px 1fr 220px; height: 360px; font-size: 12px; }
+    @media (max-width: 768px) { .mock-body { grid-template-columns: 1fr; height: auto; } .mock-panel { display: none; } .mock-panel.center { display: block; } }
+    .mock-panel { padding: 12px; }
+    .mock-panel.left { border-right: 1px solid rgba(0,0,0,0.06); background: #FAFAF9; }
+    .mock-panel.right { border-left: 1px solid rgba(0,0,0,0.06); background: #FAFAF9; }
+    .mock-eyebrow { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: #A3A3A3; margin-bottom: 8px; font-family: monospace; }
+    .mock-agent { padding: 8px; background: #fff; border: 1px solid rgba(0,0,0,0.06); margin-bottom: 6px; }
+    .mock-agent-row { display: flex; justify-content: space-between; align-items: center; }
+    .mock-agent-name { font-weight: 500; font-size: 11px; }
+    .mock-agent-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .mock-agent-sub { font-size: 10px; color: #A3A3A3; margin-top: 2px; }
+    .mock-budget { margin-top: 12px; }
+    .mock-budget-bar { height: 4px; background: rgba(0,0,0,0.06); margin: 4px 0; }
+    .mock-budget-fill { height: 100%; background: #0A0A0A; width: 32%; }
+    .mock-chat { display: flex; flex-direction: column; height: 100%; }
+    .mock-chat-msgs { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+    .mock-msg-user { align-self: flex-end; max-width: 80%; background: #0A0A0A; color: #fff; padding: 6px 12px; font-size: 11px; }
+    .mock-msg-otto { display: flex; gap: 8px; }
+    .mock-otto-avatar { width: 20px; height: 20px; background: #0A0A0A; color: #fff; display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 9px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+    .mock-otto-bubble { max-width: 80%; }
+    .mock-otto-bubble > div { background: #fff; border: 1px solid rgba(0,0,0,0.08); padding: 6px 12px; font-size: 11px; margin-bottom: 6px; }
+    .mock-otto-bubble .mono { font-family: monospace; font-size: 10px; line-height: 1.6; }
+    .mock-otto-bubble .muted { color: #525252; }
+    .mock-input { margin-top: auto; padding: 12px; border-top: 1px solid rgba(0,0,0,0.06); display: flex; gap: 8px; }
+    .mock-input-field { flex: 1; padding: 8px 12px; background: #FAFAF9; border: 1px solid rgba(0,0,0,0.06); font-size: 11px; color: #A3A3A3; }
+    .mock-input-send { width: 28px; height: 28px; background: #0A0A0A; color: #fff; display: flex; align-items: center; justify-content: center; }
+    .mock-thoughts { font-size: 10px; font-family: monospace; color: #525252; line-height: 1.6; }
+    .mock-thoughts > div { margin-bottom: 6px; }
+    .mock-thoughts .cursor { color: #0A0A0A; }
+    .mock-vault { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.06); }
+
+    /* ─── Section headers ────────────────────────────────── */
+    .section-eyebrow { font-size: 12px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; color: #A3A3A3; margin-bottom: 12px; }
+    .section h2 { font-size: clamp(32px, 5vw, 48px); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+    .section h2 .muted { color: #A3A3A3; }
+    .section-intro { max-width: 560px; margin-bottom: 64px; }
+    .section-center { text-align: center; }
+    .section-center .section-intro { margin-left: auto; margin-right: auto; }
+
+    /* ─── Features grid ──────────────────────────────────── */
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.06); }
+    @media (max-width: 900px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .features-grid { grid-template-columns: 1fr; } }
+    .feature-card { background: #fff; padding: 32px; transition: background 0.2s; }
+    .feature-card:hover { background: #FAFAF9; }
+    .feature-icon { width: 40px; height: 40px; background: #0A0A0A; color: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; transition: transform 0.2s; }
+    .feature-card:hover .feature-icon { transform: scale(1.05); }
+    .feature-card h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: #525252; line-height: 1.6; }
+
+    /* ─── Steps ──────────────────────────────────────────── */
+    .steps-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
+    @media (max-width: 768px) { .steps-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .steps-grid { grid-template-columns: 1fr; } }
+    .step-num { width: 48px; height: 48px; background: #fff; border: 1px solid rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; font-family: monospace; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+    .step h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .step p { font-size: 14px; color: #525252; }
+
+    /* ─── Download section ───────────────────────────────── */
+    .platform-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 auto 40px; background: #161616; padding: 4px; border-radius: 8px; width: fit-content; }
+    .platform-tab { padding: 8px 16px; font-size: 14px; font-weight: 500; color: #A3A3A3; transition: all 0.2s; display: flex; align-items: center; gap: 8px; border-radius: 6px; }
+    .platform-tab.active { background: #fff; color: #0A0A0A; }
+    .platform-tab:hover { color: #fff; }
+    .platform-tab.active:hover { color: #0A0A0A; }
+    .platform-card { max-width: 640px; margin: 0 auto; background: #161616; border: 1px solid rgba(255,255,255,0.06); padding: 40px; }
+    @media (max-width: 640px) { .platform-card { padding: 24px; } }
+    .platform-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
+    .platform-head-left { display: flex; gap: 16px; align-items: center; }
+    .platform-icon { width: 56px; height: 56px; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+    .platform-name { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+    .platform-note { font-size: 14px; color: #A3A3A3; margin-top: 2px; }
+    .platform-badge { font-size: 10px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
+    .platform-badge.green { background: rgba(34,197,94,0.15); color: #4ade80; }
+    .platform-badge.amber { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .platform-badge.gray { background: rgba(255,255,255,0.06); color: #A3A3A3; }
+    .platform-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 24px; }
+    .platform-meta-label { font-size: 10px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; color: #525252; }
+    .platform-meta-val { font-size: 14px; font-family: monospace; margin-top: 4px; }
+    .platform-download { width: 100%; padding: 16px; font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; }
+    .platform-download.available { background: #fff; color: #0A0A0A; }
+    .platform-download.available:hover { background: #E5E5E5; }
+    .platform-download.disabled { background: rgba(255,255,255,0.04); color: #525252; cursor: not-allowed; }
+    .platform-grid-small { margin-top: 48px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    @media (max-width: 640px) { .platform-grid-small { grid-template-columns: repeat(3, 1fr); } }
+    .platform-small { padding: 16px; border: 1px solid rgba(255,255,255,0.06); text-align: left; transition: all 0.2s; }
+    .platform-small:hover { border-color: rgba(255,255,255,0.12); }
+    .platform-small.active { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.15); }
+    .platform-small-name { font-size: 12px; font-weight: 500; margin-top: 8px; }
+    .platform-small-size { font-size: 10px; color: #525252; margin-top: 2px; }
+    .build-source { max-width: 640px; margin: 40px auto 0; border: 1px solid rgba(255,255,255,0.06); padding: 24px; }
+    .build-source pre { font-size: 12px; color: #A3A3A3; line-height: 1.7; overflow-x: auto; }
+
+    /* ─── Stats ──────────────────────────────────────────── */
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; text-align: center; }
+    @media (max-width: 600px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+    .stat-num { font-size: clamp(36px, 5vw, 48px); font-weight: 600; letter-spacing: -0.02em; }
+    .stat-label { font-size: 12px; color: #A3A3A3; margin-top: 8px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ─── Waitlist ───────────────────────────────────────── */
+    .waitlist { text-align: center; max-width: 560px; margin: 0 auto; }
+    .waitlist-icon { margin: 0 auto 16px; }
+    .waitlist h2 { margin-bottom: 12px; }
+    .waitlist p { font-size: 14px; color: #525252; }
+    .waitlist-form { margin-top: 24px; display: flex; gap: 8px; max-width: 440px; margin-left: auto; margin-right: auto; }
+    .waitlist-input { flex: 1; padding: 12px 16px; background: #fff; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; transition: border 0.2s; }
+    .waitlist-input:focus { border-color: #0A0A0A; }
+    .waitlist-success { margin-top: 24px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #16a34a; }
+
+    /* ─── Invite code ────────────────────────────────────── */
+    .invite { text-align: center; max-width: 560px; margin: 0 auto; }
+    .invite h2 { margin-bottom: 12px; }
+    .invite p { font-size: 14px; color: #525252; }
+    .invite-form { margin-top: 24px; display: flex; gap: 8px; max-width: 440px; margin-left: auto; margin-right: auto; }
+    .invite-input { flex: 1; padding: 12px 16px; background: #fff; border: 1px solid rgba(0,0,0,0.1); font-size: 14px; outline: none; transition: border 0.2s; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; text-align: center; }
+    .invite-input:focus { border-color: #0A0A0A; }
+    .invite-result { margin-top: 20px; padding: 16px; border: 1px solid rgba(0,0,0,0.1); display: none; }
+    .invite-result.show { display: block; }
+    .invite-result.valid { background: #f0fdf4; border-color: #16a34a; }
+    .invite-result.invalid { background: #fef2f2; border-color: #dc2626; }
+    .invite-result-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .invite-result.valid .invite-result-title { color: #15803d; }
+    .invite-result.invalid .invite-result-title { color: #b91c1c; }
+    .invite-result-detail { font-size: 13px; color: #525252; }
+
+    /* ─── FAQ ────────────────────────────────────────────── */
+    .faq-list { max-width: 720px; margin: 0 auto; }
+    .faq-item { border: 1px solid rgba(0,0,0,0.08); background: #fff; }
+    .faq-q { width: 100%; text-align: left; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 500; transition: background 0.2s; }
+    .faq-q:hover { background: #FAFAF9; }
+    .faq-toggle { font-size: 20px; font-weight: 300; color: #A3A3A3; margin-left: 16px; }
+    .faq-a { padding: 0 24px 20px; font-size: 14px; color: #525252; line-height: 1.7; display: none; }
+    .faq-item.open .faq-a { display: block; }
+    .faq-item.open .faq-toggle { transform: rotate(45deg); }
+
+    /* ─── Final CTA ──────────────────────────────────────── */
+    .final-cta { text-align: center; }
+    .final-cta .logo-mark { width: 56px; height: 56px; font-size: 20px; margin: 0 auto 24px; background: #fff; color: #0A0A0A; }
+    .final-cta h2 { margin-bottom: 24px; }
+    .final-cta p { color: #A3A3A3; max-width: 440px; margin: 0 auto 40px; }
+
+    /* ─── Footer ─────────────────────────────────────────── */
+    footer { padding: 48px 0; background: #0A0A0A; color: #525252; border-top: 1px solid rgba(255,255,255,0.06); }
+    .footer-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; gap: 16px; align-items: center; justify-content: space-between; font-size: 12px; }
+    @media (min-width: 768px) { .footer-inner { flex-direction: row; } }
+    .footer-left { display: flex; align-items: center; gap: 8px; }
+    .footer-left .logo-mark { width: 24px; height: 24px; font-size: 10px; }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a:hover { color: #fff; }
+
+    /* ─── Animations ─────────────────────────────────────── */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    .hero > * { animation: fadeUp 0.8s ease-out backwards; }
+    .hero > *:nth-child(1) { animation-delay: 0s; }
+    .hero > *:nth-child(2) { animation-delay: 0.1s; }
+    .hero > *:nth-child(3) { animation-delay: 0.2s; }
+    .hero > *:nth-child(4) { animation-delay: 0.3s; }
+    .hero > *:nth-child(5) { animation-delay: 0.4s; }
+    .hero-visual { animation: fadeUp 1s ease-out 0.5s backwards; }
+  </style>
+</head>
+<body>
+
+<!-- ─── Nav ──────────────────────────────────────────────── -->
+<nav id="nav">
+  <div class="nav-inner">
+    <a href="/" class="logo">
+      <div class="logo-mark">O</div>
+      <span>Otto Perso</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/Aghosh-mv/otto-perso-source" target="_blank">GitHub</a>
+    </div>
+    <a href="#download" class="nav-cta">Get Otto →</a>
+  </div>
+</nav>
+
+<!-- ─── Hero ─────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="container">
+    <div class="pill">
+      <span class="pill-dot"></span>
+      v1.0.0 — Available now
+    </div>
+    <h1>Your digital<br><span class="accent">employee.</span></h1>
+    <p>Otto Perso is an autonomous agent that lives on your computer. It reads files, searches the web, manages your schedule, spawns its own brains for parallel work — all through a chat interface.</p>
+    <div class="hero-ctas">
+      <a href="#download" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download Otto
+      </a>
+      <a href="#features" class="btn btn-outline">
+        See what it does
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+      </a>
+    </div>
+    <div class="hero-trust">
+      <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> No API key needed</span>
+      <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Free forever</span>
+      <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Open source</span>
+    </div>
+  </div>
+
+  <!-- Hero visual -->
+  <div class="container">
+    <div class="hero-visual">
+      <div class="mock-window">
+        <div class="mock-titlebar">
+          <div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div>
+          <div class="mock-title">Otto Perso</div>
+        </div>
+        <div class="mock-body">
+          <!-- Left: control -->
+          <div class="mock-panel left">
+            <div class="mock-eyebrow">Controlling</div>
+            <div class="mock-agent">
+              <div class="mock-agent-row"><span class="mock-agent-name">Inboxer</span><span class="mock-agent-dot" style="background:#f59e0b"></span></div>
+              <div class="mock-agent-sub">executing</div>
+            </div>
+            <div class="mock-agent">
+              <div class="mock-agent-row"><span class="mock-agent-name">Scout</span><span class="mock-agent-dot" style="background:#3b82f6"></span></div>
+              <div class="mock-agent-sub">executing</div>
+            </div>
+            <div class="mock-agent">
+              <div class="mock-agent-row"><span class="mock-agent-name">Atlas</span><span class="mock-agent-dot" style="background:#a855f7"></span></div>
+              <div class="mock-agent-sub">thinking</div>
+            </div>
+            <div class="mock-agent">
+              <div class="mock-agent-row"><span class="mock-agent-name">Vex</span><span class="mock-agent-dot" style="background:#22c55e"></span></div>
+              <div class="mock-agent-sub">idle</div>
+            </div>
+            <div class="mock-budget">
+              <div class="mock-eyebrow">Brain budget</div>
+              <div class="mock-budget-bar"><div class="mock-budget-fill"></div></div>
+              <div style="font-size:10px;color:#A3A3A3;font-family:monospace">128 / 400 today</div>
+            </div>
+          </div>
+          <!-- Center: chat -->
+          <div class="mock-panel center" style="padding:0">
+            <div class="mock-chat">
+              <div class="mock-chat-msgs">
+                <div class="mock-msg-user">look at my inbox and take care of background tasks. also check my socials.</div>
+                <div class="mock-msg-otto">
+                  <div class="mock-otto-avatar">O</div>
+                  <div class="mock-otto-bubble">
+                    <div>On it. Spawning 4 new brains:</div>
+                    <div class="mono">▸ Inboxer — inbox triage<br>▸ Scout — socials scan<br>▸ Vex — event booking<br>▸ Atlas — restaurant find</div>
+                    <div class="muted">I'll report back as they finish.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="mock-input">
+                <div class="mock-input-field">Tell Otto what to do…</div>
+                <div class="mock-input-send"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+              </div>
+            </div>
+          </div>
+          <!-- Right: thoughts -->
+          <div class="mock-panel right">
+            <div class="mock-eyebrow">/Internal thought</div>
+            <div class="mock-thoughts">
+              <div>▸ User wants 4 things</div>
+              <div>→ spawn 4 brains</div>
+              <div>▸ Inboxer started</div>
+              <div>▸ Scout started</div>
+              <div>▸ Atlas started</div>
+              <div>▸ Vex started</div>
+              <div class="cursor">▍waiting for results</div>
+            </div>
+            <div class="mock-vault">
+              <div class="mock-eyebrow">Vault</div>
+              <div style="font-size:10px;color:#525252">7 notes synced</div>
+              <div style="font-size:10px;color:#A3A3A3;margin-top:2px">Obsidian-compatible</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Features ─────────────────────────────────────────── -->
+<section id="features" class="section section-white">
+  <div class="container">
+    <div class="section-intro">
+      <div class="section-eyebrow">Features</div>
+      <h2>Not a chatbot.<br><span class="muted">An agent that acts.</span></h2>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>Chat is the home</h3>
+        <p>Not a dashboard. Not a control panel. You talk to Otto like a colleague. It does the rest.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+        <h3>Spawns its own brains</h3>
+        <p>Complex request? Otto decomposes it and spawns new Otto brains — each a complete instance with tools, memory, and focus.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div>
+        <h3>Real memory</h3>
+        <p>Obsidian-compatible vault on disk. Otto remembers what matters. Edit it alongside Otto. Changes sync both ways.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <h3>5-tier autonomy</h3>
+        <p>From "ask before editing" to "vacation mode". You decide how much freedom Otto has. Emergency stop always one tap away.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></div>
+        <h3>26 real tools</h3>
+        <p>Reads files, searches the web, writes notes, creates tasks, sends SMS and email. Not a chatbot — an agent that acts.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Yours, locally</h3>
+        <p>Everything stays on your device. No cloud, no telemetry, no subscription. MIT licensed. Inspect every line.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── How it works ─────────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-center section-intro">
+      <div class="section-eyebrow">How it works</div>
+      <h2>Four steps. Two minutes.</h2>
+    </div>
+    <div class="steps-grid">
+      <div class="step"><div class="step-num">01</div><h3>Download</h3><p>Pick your platform. One file.</p></div>
+      <div class="step"><div class="step-num">02</div><h3>Open</h3><p>Double-click. Otto wakes up.</p></div>
+      <div class="step"><div class="step-num">03</div><h3>Sign in</h3><p>Default account, or make your own in 10 seconds.</p></div>
+      <div class="step"><div class="step-num">04</div><h3>Talk</h3><p>Tell Otto what to do. It uses tools, spawns brains, gets it done.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Download ─────────────────────────────────────────── -->
+<section id="download" class="section section-dark">
+  <div class="container">
+    <div class="section-center section-intro">
+      <div class="section-eyebrow" style="color:#525252">Download</div>
+      <h2>Get Otto. Anywhere.</h2>
+      <p style="color:#A3A3A3;max-width:440px;margin:16px auto 0">Five platforms. One Otto. Your data stays on your device.</p>
+    </div>
+
+    <div class="platform-tabs" id="platformTabs">
+      <button class="platform-tab" data-platform="ios"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg><span class="tab-label">iPhone & iPad</span></button>
+      <button class="platform-tab" data-platform="android"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4483.9993.9993 0 .5511-.4482.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4483.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.2439 13.8533 7.8508 12 7.8508s-3.5902.3931-5.1367 1.0989L4.841 5.4467a.4161.4161 0 00-.5677-.1521.4157.4157 0 00-.1521.5676l1.9974 3.4592C2.6889 11.1867.3432 14.6688 0 18.761h24c-.3432-4.0922-2.6889-7.5743-6.1185-9.4396"/></svg><span class="tab-label">Android</span></button>
+      <button class="platform-tab active" data-platform="mac"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg><span class="tab-label">macOS</span></button>
+      <button class="platform-tab" data-platform="windows"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg><span class="tab-label">Windows</span></button>
+      <button class="platform-tab" data-platform="linux"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.480.021C9.899.237 8.537 1.478 7.93 3.018c-.604 1.532-.534 3.404-.534 5.252 0 .465-.018.918-.062 1.354-.135 1.114-.504 2.075-1.227 2.875-.43.476-1.002.86-1.705 1.085-.726.236-1.42.671-1.945 1.258-.537.6-.891 1.395-.891 2.354 0 .97.346 1.779.891 2.382.539.598 1.262.993 2.014 1.214.655.193 1.305.215 1.918.215.07 0 .139-.001.207-.003.18.034.36.063.541.083.62.07 1.234-.024 1.829-.295.595-.27 1.158-.712 1.645-1.325.487-.613.886-1.404 1.137-2.371.05-.194.094-.394.133-.6.04.206.084.406.133.6.251.967.65 1.758 1.137 2.371.487.613 1.05 1.055 1.645 1.325.595.271 1.209.365 1.829.295.181-.02.361-.049.541-.083.068.002.137.003.207.003.613 0 1.263-.022 1.918-.215.752-.221 1.475-.616 2.014-1.214.545-.603.891-1.412.891-2.382 0-.959-.354-1.754-.891-2.354-.525-.587-1.219-1.022-1.945-1.258-.703-.225-1.275-.609-1.705-1.085-.723-.8-1.092-1.761-1.227-2.875-.044-.436-.062-.889-.062-1.354 0-1.848.07-3.72-.534-5.252C15.463 1.478 14.101.237 11.976.021 11.811.008 11.651 0 11.496 0z"/></svg><span class="tab-label">Linux</span></button>
+    </div>
+
+    <div id="platformCard"></div>
+
+    <div class="platform-grid-small" id="platformGridSmall"></div>
+
+    <div class="build-source">
+      <div class="section-eyebrow" style="color:#525252">Build from source</div>
+<pre><code>git clone https://github.com/Aghosh-mv/otto-perso-source.git
+cd otto-perso
+bun run setup          # install + create DB
+bun run build:desktop  # native app (.dmg/.exe/.AppImage)
+# or
+bun run build:portable # portable zip</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Stats ────────────────────────────────────────────── -->
+<section class="section section-white">
+  <div class="container">
+    <div class="stats-grid">
+      <div><div class="stat-num">26</div><div class="stat-label">Tools built-in</div></div>
+      <div><div class="stat-num">5</div><div class="stat-label">Platforms</div></div>
+      <div><div class="stat-num">0</div><div class="stat-label">Cloud dependencies</div></div>
+      <div><div class="stat-num">∞</div><div class="stat-label">Local-first</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Waitlist ─────────────────────────────────────────── -->
+<section class="section" style="background:#FAFAF9;border-top:1px solid rgba(0,0,0,0.06);border-bottom:1px solid rgba(0,0,0,0.06)">
+  <div class="container">
+    <div class="waitlist">
+      <div class="waitlist-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4-6.2-4.5-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+      </div>
+      <h2 id="waitlistTitle">Get Otto on your phone.</h2>
+      <p id="waitlistDesc">iOS is in TestFlight beta. Android Play Store release is pending. Drop your email — we'll send the invite.</p>
+      <form class="waitlist-form" id="waitlistForm" action="https://formspree.io/f/xyeeajgr" method="POST">
+        <input type="email" class="waitlist-input" placeholder="you@example.com" required id="waitlistEmail" name="email" />
+        <input type="hidden" name="_subject" value="New Otto Perso waitlist signup" />
+        <input type="hidden" name="source" value="otto-perso.vercel.app" />
+        <button type="submit" class="btn btn-primary">Join <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
+      </form>
+      <div id="waitlistSuccess" style="display:none" class="waitlist-success">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        You're on the waitlist.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── iOS TestFlight invite code ───────────────────────── -->
+<section class="section section-white">
+  <div class="container">
+    <div class="invite">
+      <div style="margin: 0 auto 16px;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2" style="margin: 0 auto;"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"/></svg>
+      </div>
+      <h2>Have an iOS invite code?</h2>
+      <p>Got a code for the iOS TestFlight beta? Validate it here, then use it to join the TestFlight. <br><span style="font-size:12px;color:#A3A3A3">Mac, Windows, Linux, and Android are freely downloadable — no code needed.</span></p>
+      <form class="invite-form" id="inviteForm">
+        <input type="text" class="invite-input" placeholder="OTTO-XXXX-XXXX" id="inviteCode" maxlength="14" autocomplete="off" />
+        <button type="submit" class="btn btn-primary">Check</button>
+      </form>
+      <div id="inviteResult" class="invite-result">
+        <div class="invite-result-title" id="inviteResultTitle"></div>
+        <div class="invite-result-detail" id="inviteResultDetail"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FAQ ──────────────────────────────────────────────── -->
+<section id="faq" class="section">
+  <div class="container">
+    <div class="section-center section-intro">
+      <div class="section-eyebrow">FAQ</div>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq-list" id="faqList"></div>
+  </div>
+</section>
+
+<!-- ─── Final CTA ────────────────────────────────────────── -->
+<section class="section section-dark">
+  <div class="container">
+    <div class="final-cta">
+      <div class="logo-mark">O</div>
+      <h2>Stop managing tools.<br><span style="color:#525252">Start managing Otto.</span></h2>
+      <p>One download. One agent. Everything else handled.</p>
+      <a href="#download" class="btn btn-primary" style="background:#fff;color:#0A0A0A">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download Otto Perso
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Footer ───────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-left">
+      <div class="logo-mark">O</div>
+      <span>© 2026 Otto Perso</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/Aghosh-mv/otto-perso-source" target="_blank">GitHub</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+      <span style="color:#404040">MIT License</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ─── Platform data ──────────────────────────────────────────
+const PLATFORMS = {
+  ios: {
+    name: 'iPhone & iPad', icon: 'M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z',
+    color: '#000', status: 'Coming Soon', statusClass: 'gray',
+    note: 'TestFlight beta — join the waitlist',
+    file: 'Otto-Perso-1.0.0.ipa', size: '~25 MB', req: 'iOS 16+',
+    downloadUrl: '#waitlist'
+  },
+  android: {
+    name: 'Android', icon: 'M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4483.9993.9993 0 .5511-.4482.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4483.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.2439 13.8533 7.8508 12 7.8508s-3.5902.3931-5.1367 1.0989L4.841 5.4467a.4161.4161 0 00-.5677-.1521.4157.4157 0 00-.1521.5676l1.9974 3.4592C2.6889 11.1867.3432 14.6688 0 18.761h24c-.3432-4.0922-2.6889-7.5743-6.1185-9.4396',
+    color: '#3DDC84', status: 'Coming Soon', statusClass: 'gray',
+    note: 'APK coming soon — join the waitlist',
+    file: 'Otto-Perso-1.0.0.apk', size: '~30 MB', req: 'Android 10+',
+    downloadUrl: '#waitlist'
+  },
+  mac: {
+    name: 'macOS', icon: 'M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z',
+    color: '#fff', status: 'Available', statusClass: 'green',
+    note: 'Portable build — native .dmg coming soon',
+    file: 'otto-perso-1.0.0-macos.zip', size: '~56 MB', req: 'macOS 12+',
+    downloadUrl: 'https://github.com/Aghosh-mv/otto-perso-source/releases/download/v1.0.0-release/otto-perso-1.0.0-macos.zip'
+  },
+  windows: {
+    name: 'Windows', icon: 'M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801',
+    color: '#0078D4', status: 'Available', statusClass: 'green',
+    note: 'Native installer — double-click to install',
+    file: 'Otto.Perso_1.0.0_x64-setup.exe', size: '~2 MB', req: 'Windows 10+',
+    downloadUrl: 'https://github.com/Aghosh-mv/otto-perso-source/releases/download/v1.0.0/Otto.Perso_1.0.0_x64-setup.exe'
+  },
+  linux: {
+    name: 'Linux', icon: 'M12.504 0c-.155 0-.315.008-.480.021C9.899.237 8.537 1.478 7.93 3.018c-.604 1.532-.534 3.404-.534 5.252 0 .465-.018.918-.062 1.354-.135 1.114-.504 2.075-1.227 2.875-.43.476-1.002.86-1.705 1.085-.726.236-1.42.671-1.945 1.258-.537.6-.891 1.395-.891 2.354 0 .97.346 1.779.891 2.382.539.598 1.262.993 2.014 1.214.655.193 1.305.215 1.918.215.07 0 .139-.001.207-.003.18.034.36.063.541.083.62.07 1.234-.024 1.829-.295.595-.27 1.158-.712 1.645-1.325.487-.613.886-1.404 1.137-2.371.05-.194.094-.394.133-.6.04.206.084.406.133.6.251.967.65 1.758 1.137 2.371.487.613 1.05 1.055 1.645 1.325.595.271 1.209.365 1.829.295.181-.02.361-.049.541-.083.068.002.137.003.207.003.613 0 1.263-.022 1.918-.215.752-.221 1.475-.616 2.014-1.214.545-.603.891-1.412.891-2.382 0-.959-.354-1.754-.891-2.354-.525-.587-1.219-1.022-1.945-1.258-.703-.225-1.275-.609-1.705-1.085-.723-.8-1.092-1.761-1.227-2.875-.044-.436-.062-.889-.062-1.354 0-1.848.07-3.72-.534-5.252C15.463 1.478 14.101.237 11.976.021 11.811.008 11.651 0 11.496 0z',
+    color: '#FCC624', status: 'Available', statusClass: 'green',
+    note: 'Native AppImage — download, run, done',
+    file: 'Otto.Perso_1.0.0_amd64.AppImage', size: '~79 MB', req: 'glibc 2.31+',
+    downloadUrl: 'https://github.com/Aghosh-mv/otto-perso-source/releases/download/v1.0.0/Otto.Perso_1.0.0_amd64.AppImage'
+  },
+};
+
+const FAQS = [
+  { q: 'Do I need an API key?', a: 'No. Otto ships with a bundled brain key. It works the moment you install — 500 requests per day, free. If you want more, paste your own key in Settings → Brain.' },
+  { q: 'Is it really free?', a: 'Yes. MIT-licensed open source. The bundled brain key gives 500 requests/day. No credit card, no subscription, no upsell.' },
+  { q: 'Where does my data go?', a: 'Nowhere. Everything stays on your computer — database, vault, workspace are all local files. The only thing that leaves your device is the brain API call (required for Otto to think), and even that can be your own key.' },
+  { q: 'What can Otto actually do?', a: 'Read and write files in a sandboxed workspace. Search the web (DuckDuckGo). Manage an Obsidian-compatible vault. Create and track tasks with dependency graphs. Spawn new Otto brains for parallel work. Send SMS and email (with your credentials). It\'s an autonomous agent, not a chatbot.' },
+  { q: 'How is this different from ChatGPT or Claude?', a: 'Those are chatbots — you talk, they reply. Otto is an agent — you talk, it acts. It has tools, memory, and the ability to spawn sub-agents. It runs on your machine, not in a cloud. You own the data.' },
+  { q: 'When is the iOS / Android app out?', a: 'Android APK is available now (sideload). Play Store release is pending review. iOS is in TestFlight beta — join the waitlist above and we\'ll send you an invite.' },
+  { q: 'Can I build it myself?', a: 'Yes. Clone the repo, run `bun run setup`, then `bun run build:desktop` (native app) or `bun run build:portable` (zip). Full instructions on GitHub.' },
+];
+
+// ─── Render platform card ───────────────────────────────────
+function renderPlatform(id) {
+  const p = PLATFORMS[id];
+  const card = document.getElementById('platformCard');
+  const isComing = p.status === 'Coming Soon';
+  card.innerHTML = `
+    <div class="platform-card">
+      <div class="platform-head">
+        <div class="platform-head-left">
+          <div class="platform-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="${p.color}"><path d="${p.icon}"/></svg></div>
+          <div>
+            <div class="platform-name">${p.name}</div>
+            <div class="platform-note">${p.note}</div>
+          </div>
+        </div>
+        <span class="platform-badge ${p.statusClass}">${p.status}</span>
+      </div>
+      <div class="platform-meta">
+        <div><div class="platform-meta-label">File</div><div class="platform-meta-val">${p.file}</div></div>
+        <div><div class="platform-meta-label">Size / Requirement</div><div class="platform-meta-val">${p.size} · ${p.req}</div></div>
+      </div>
+      <a href="${p.downloadUrl}" class="platform-download ${isComing ? 'disabled' : 'available'}">
+        ${isComing ? 'Join waitlist for early access' : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download for ${p.name}`}
+      </a>
+    </div>
+  `;
+  // Update small grid
+  document.querySelectorAll('.platform-small').forEach(el => {
+    el.classList.toggle('active', el.dataset.platform === id);
+  });
+}
+
+// ─── Render small platform grid ─────────────────────────────
+function renderSmallGrid() {
+  const grid = document.getElementById('platformGridSmall');
+  grid.innerHTML = Object.entries(PLATFORMS).map(([id, p]) => `
+    <button class="platform-small" data-platform="${id}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="${p.color}"><path d="${p.icon}"/></svg>
+      <div class="platform-small-name">${p.name}</div>
+      <div class="platform-small-size">${p.size}</div>
+    </button>
+  `).join('');
+  grid.querySelectorAll('.platform-small').forEach(el => {
+    el.addEventListener('click', () => {
+      renderPlatform(el.dataset.platform);
+      document.querySelectorAll('.platform-tab').forEach(t => t.classList.toggle('active', t.dataset.platform === el.dataset.platform));
+    });
+  });
+}
+
+// ─── Render FAQ ─────────────────────────────────────────────
+function renderFAQ() {
+  const list = document.getElementById('faqList');
+  list.innerHTML = FAQS.map((f, i) => `
+    <div class="faq-item" data-i="${i}">
+      <button class="faq-q">${f.q}<span class="faq-toggle">+</span></button>
+      <div class="faq-a">${f.a}</div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.faq-item').forEach(el => {
+    el.querySelector('.faq-q').addEventListener('click', () => el.classList.toggle('open'));
+  });
+}
+
+// ─── Init ───────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Platform tabs
+  document.querySelectorAll('.platform-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.platform-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderPlatform(tab.dataset.platform);
+    });
+  });
+  renderSmallGrid();
+  renderPlatform('mac');
+  renderFAQ();
+
+  // Nav scroll
+  window.addEventListener('scroll', () => {
+    document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 20);
+  });
+
+  // Waitlist — POST to Formspree via fetch, show success without redirect
+  document.getElementById('waitlistForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const email = document.getElementById('waitlistEmail').value.trim();
+    if (!email) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = 'Joining…';
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { Accept: 'application/json' }
+      });
+      if (res.ok) {
+        form.style.display = 'none';
+        document.getElementById('waitlistSuccess').style.display = 'inline-flex';
+        document.getElementById('waitlistTitle').textContent = "You're on the list.";
+        document.getElementById('waitlistDesc').textContent = "We'll email you when the iOS TestFlight and Android Play Store builds are ready.";
+      } else {
+        throw new Error('Formspree returned ' + res.status);
+      }
+    } catch (err) {
+      submitBtn.innerHTML = originalText;
+      submitBtn.disabled = false;
+      alert('Could not submit — please try again or email us directly.');
+    }
+  });
+
+  // Invite code validation — calls the Otto app's API.
+  // The Otto app URL is configurable; default is localhost for testing.
+  const OTTO_API = 'http://localhost:3000'; // users change this to their Otto instance URL
+  document.getElementById('inviteForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = document.getElementById('inviteCode').value.trim().toUpperCase();
+    const result = document.getElementById('inviteResult');
+    const title = document.getElementById('inviteResultTitle');
+    const detail = document.getElementById('inviteResultDetail');
+    const btn = e.target.querySelector('button[type="submit"]');
+
+    if (!code) return;
+    btn.innerHTML = 'Checking…';
+    btn.disabled = true;
+    result.className = 'invite-result';
+
+    try {
+      const res = await fetch(`${OTTO_API}/api/invite/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        result.className = 'invite-result show valid';
+        title.textContent = '✓ Valid iOS invite code';
+        detail.innerHTML = `This code is active${data.remainingUses != null ? ` · ${data.remainingUses} use${data.remainingUses === 1 ? '' : 's'} remaining` : ''}.<br>Check your email for a TestFlight invite link. If you don't see it within 10 minutes, check spam.`;
+      } else {
+        result.className = 'invite-result show invalid';
+        title.textContent = '✗ Invalid code';
+        detail.textContent = data.reason || 'This code is not valid.';
+      }
+    } catch (err) {
+      result.className = 'invite-result show invalid';
+      title.textContent = '⚠ Could not validate';
+      detail.innerHTML = `Couldn't reach the Otto server at <code>${OTTO_API}</code>. If you're testing locally, make sure Otto is running. To validate against a different Otto instance, edit <code>OTTO_API</code> in the page source.`;
+    } finally {
+      btn.innerHTML = 'Check';
+      btn.disabled = false;
+    }
+  });
+});
+</script>
+
+</body>
+</html>
