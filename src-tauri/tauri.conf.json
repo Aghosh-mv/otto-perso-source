@@ -37,24 +37,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "resources/*"
-    ],
     "copyright": "© 2026 Otto Perso",
     "category": "Productivity",
     "shortDescription": "Your digital employee. Lives on your computer.",
-    "longDescription": "Otto Perso is an autonomous agent that lives on your computer. It reads your files, browses the web, manages your schedule, and spawns worker brains for parallel tasks — all through a chat interface."
-  },
-  "plugins": {
-    "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "otto-server",
-          "cmd": "otto-server",
-          "args": []
-        }
-      ]
-    }
+    "longDescription": "Otto Perso is an autonomous agent that lives on your computer."
   }
 }
