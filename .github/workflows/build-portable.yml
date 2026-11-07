@@ -1,0 +1,68 @@
+name: Build Portable Bundles
+
+# This workflow builds the portable zip bundles (no Rust/Tauri needed).
+# These are the "download and run" zips that work on any platform with Node.js.
+# Faster than the native build, no compile step, works today.
+#
+# The native installer workflow (release.yml) builds .dmg/.exe/.AppImage
+# using Tauri — that's the premium path. This is the quick path.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Create .env with bundled key
+        run: |
+          cp .env.example .env
+          # Ensure the bundled key is set
+          grep -q "GEMINI_API_KEY" .env || echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+
+      - name: Build all platform bundles
+        run: bash scripts/build-all-platforms.sh
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          for f in build/otto-perso-*.zip; do
+            echo "Uploading $f..."
+            gh release upload ${{ github.ref_name }} "$f" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (for manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: otto-portable-bundles
+          path: build/otto-perso-*.zip
