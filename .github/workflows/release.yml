@@ -96,9 +96,10 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Otto Perso ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download Otto Perso for your platform.'
+          projectPath: src-tauri
+          tagName: v1.0.0
+          releaseName: 'Otto Perso v1.0.0'
+          releaseBody: 'Otto Perso — your digital employee. Download for your platform below.'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
