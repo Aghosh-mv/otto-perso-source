@@ -79,11 +79,15 @@ jobs:
       - name: Generate Prisma client
         run: bun run db:generate
 
-      - name: Build Next.js standalone
-        run: bun run build:next-standalone
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+      - name: Create .env
+        run: |
+          echo "DATABASE_URL=file:./db/custom.db" > .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "OTTO_MODEL=gemini-3.5-flash-lite" >> .env
+          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}" >> .env
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
+          echo "OTTO_OWNER_EMAIL=owner@otto.local" >> .env
+          echo "OTTO_OWNER_PASSWORD=otto-perso-owner" >> .env
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
