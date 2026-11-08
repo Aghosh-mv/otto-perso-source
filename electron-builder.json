@@ -1,0 +1,93 @@
+{
+  "appId": "com.ottoperso.app",
+  "productName": "Otto Perso",
+  "copyright": "© 2026 Otto Perso",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "electron/main.js",
+    "server.js",
+    ".next/standalone/**/*",
+    ".next/static/**/*",
+    "public/**/*",
+    "prisma/schema.prisma",
+    "node_modules/.prisma/**/*",
+    "node_modules/@prisma/client/**/*",
+    "node_modules/prisma/build/**/*",
+    "node_modules/next/**/*",
+    "node_modules/react/**/*",
+    "node_modules/react-dom/**/*",
+    "node_modules/semver/**/*",
+    "node_modules/@next/**/*",
+    "node_modules/@swc/**/*",
+    "node_modules/styled-jsx/**/*",
+    "node_modules/client-only/**/*",
+    "node_modules/sharp/**/*",
+    "node_modules/@img/**/*",
+    "node_modules/detect-libc/**/*",
+    "package.json",
+    ".env"
+  ],
+  "extraResources": [
+    {
+      "from": ".next/standalone",
+      "to": "app",
+      "filter": ["**/*"]
+    },
+    {
+      "from": ".next/static",
+      "to": "app/.next/static",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "public",
+      "to": "app/public",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "prisma/schema.prisma",
+      "to": "app/prisma/schema.prisma"
+    },
+    {
+      "from": ".env",
+      "to": "app/.env"
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": [
+      { "target": "dmg", "arch": ["x64", "arm64"] }
+    ],
+    "icon": "src-tauri/icons/icon.icns",
+    "darkModeSupport": false
+  },
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ],
+    "icon": "src-tauri/icons/icon.ico"
+  },
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] },
+      { "target": "deb", "arch": ["x64"] }
+    ],
+    "icon": "src-tauri/icons/icon.png",
+    "category": "Productivity"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Otto Perso"
+  },
+  "dmg": {
+    "title": "Otto Perso",
+    "contents": [
+      { "x": 130, "y": 220 },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+    ]
+  }
+}
