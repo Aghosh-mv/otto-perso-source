@@ -81,6 +81,7 @@ jobs:
           echo "OTTO_WORKSPACE_ROOT=$HOME/otto-workspace" >> .env
 
       - name: Create icons directory
+        shell: bash
         run: mkdir -p src-tauri/icons
 
       - name: Create icon files
