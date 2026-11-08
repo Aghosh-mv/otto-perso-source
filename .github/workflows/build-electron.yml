@@ -1,0 +1,152 @@
+name: Build Otto Desktop (Electron)
+
+# Builds real desktop apps for macOS, Windows, and Linux using Electron.
+# The Next.js server is bundled INSIDE the app — no localhost, no terminal,
+# no Node.js install needed. Just double-click → app opens.
+#
+# Produces:
+#   macOS:   Otto Perso-1.0.0.dmg (Universal — Intel + Apple Silicon)
+#   Windows: Otto Perso-Setup-1.0.0.exe (NSIS installer)
+#   Linux:   Otto Perso-1.0.0.AppImage + .deb
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            args: '--mac'
+          - os: windows-latest
+            platform: windows
+            args: '--win'
+          - os: ubuntu-22.04
+            platform: linux
+            args: '--linux'
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libnotify-dev libnss3 libxss1 libxtst6 xauth xvfb libgbm1 libasound2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Create .env
+        run: |
+          echo "DATABASE_URL=file:./db/custom.db" > .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "OTTO_MODEL=gemini-3.5-flash-lite" >> .env
+          echo "OTTO_RATE_LIMIT_MINUTE=8" >> .env
+          echo "OTTO_RATE_LIMIT_HOURLY=50" >> .env
+          echo "OTTO_RATE_LIMIT_PEAK_HOURLY=30" >> .env
+          echo "OTTO_RATE_LIMIT_DAILY=400" >> .env
+          echo "OTTO_RATE_LIMIT_MONTHLY_TOKENS=1000000" >> .env
+          echo "OTTO_PEAK_HOUR_START=9" >> .env
+          echo "OTTO_PEAK_HOUR_END=18" >> .env
+          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}" >> .env
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
+          echo "OTTO_OWNER_EMAIL=owner@otto.local" >> .env
+          echo "OTTO_OWNER_PASSWORD=otto-perso-owner" >> .env
+          echo "OTTO_VAULT_DIR=$HOME/otto-vault" >> .env
+          echo "OTTO_WORKSPACE_ROOT=$HOME/otto-workspace" >> .env
+
+      - name: Create icons directory
+        run: mkdir -p src-tauri/icons
+
+      - name: Create icon files
+        shell: bash
+        run: |
+          # Check if icons exist, if not create placeholders
+          if [ ! -f src-tauri/icons/icon.png ]; then
+            # Create a simple 512x512 black PNG with "O" using Python
+            python3 -c "
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.new('RGBA', (512, 512), (10, 10, 10, 255))
+            draw = ImageDraw.Draw(img)
+            # Draw a white "O" in the center
+            draw.ellipse([128, 128, 384, 384], outline=(255, 255, 255, 255), width=40)
+            img.save('src-tauri/icons/icon.png')
+            img.resize((256, 256)).save('src-tauri/icons/128x128@2x.png')
+            img.resize((128, 128)).save('src-tauri/icons/128x128.png')
+            img.resize((32, 32)).save('src-tauri/icons/32x32.png')
+            img.save('src-tauri/icons/icon.ico', format='ICO', sizes=[(32,32),(64,64),(128,128),(256,256)])
+            img.save('src-tauri/icons/icon.icns')
+            print('Icons created')
+            " 2>/dev/null || echo "PIL not available, using existing icons"
+          else
+            echo "Icons already exist"
+          fi
+
+      - name: Build Next.js standalone
+        run: node scripts/build-standalone.js
+
+      - name: Build Electron app
+        run: npx electron-builder ${{ matrix.args }} --config electron-builder.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List built files
+        shell: bash
+        run: |
+          echo "=== Built files ==="
+          find dist-electron -type f -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.msi" 2>/dev/null
+          ls -lh dist-electron/ 2>/dev/null || true
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist-electron/*.dmg
+            dist-electron/*.exe
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/*.msi
+          tag_name: ${{ github.ref_name }}
+          name: "Otto Perso ${{ github.ref_name }}"
+          body: "Otto Perso — your digital employee. Download for your platform below."
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (for manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: otto-electron-${{ matrix.platform }}
+          path: |
+            dist-electron/*.dmg
+            dist-electron/*.exe
+            dist-electron/*.AppImage
+            dist-electron/*.deb
