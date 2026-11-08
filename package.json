@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Otto Perso — your digital employee. An autonomous agent that lives on your computer.",
-  "author": "Otto Perso",
+  "author": "Otto Perso <hello@ottoperso.app>",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
