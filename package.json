@@ -5,6 +5,7 @@
   "description": "Otto Perso — your digital employee. An autonomous agent that lives on your computer.",
   "author": "Otto Perso",
   "license": "MIT",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "dev:next": "next dev -p 3000",
@@ -19,11 +20,16 @@
     "postinstall": "prisma generate",
     "setup": "bash scripts/setup.sh",
     "build:portable": "bash scripts/build-portable.sh",
-    "build:desktop": "bun run build:next-standalone && tauri build",
-    "build:desktop:mac": "bun run build:next-standalone && tauri build --target aarch64-apple-darwin",
-    "build:desktop:mac-intel": "bun run build:next-standalone && tauri build --target x86_64-apple-darwin",
-    "build:desktop:windows": "bun run build:next-standalone && tauri build --target x86_64-pc-windows-msvc",
-    "build:desktop:linux": "bun run build:next-standalone && tauri build --target x86_64-unknown-linux-gnu"
+    "electron:dev": "node scripts/build-standalone.js && electron electron/main.js",
+    "build:electron": "node scripts/build-standalone.js && electron-builder --config electron-builder.json",
+    "build:electron:mac": "node scripts/build-standalone.js && electron-builder --mac --config electron-builder.json",
+    "build:electron:win": "node scripts/build-standalone.js && electron-builder --win --config electron-builder.json",
+    "build:electron:linux": "node scripts/build-standalone.js && electron-builder --linux --config electron-builder.json",
+    "build:desktop": "node scripts/build-standalone.js && electron-builder --config electron-builder.json",
+    "build:desktop:mac": "node scripts/build-standalone.js && electron-builder --mac --config electron-builder.json",
+    "build:desktop:mac-intel": "node scripts/build-standalone.js && electron-builder --mac --x64 --config electron-builder.json",
+    "build:desktop:windows": "node scripts/build-standalone.js && electron-builder --win --config electron-builder.json",
+    "build:desktop:linux": "node scripts/build-standalone.js && electron-builder --linux --config electron-builder.json"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -104,6 +110,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "bun-types": "^1.3.4",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
