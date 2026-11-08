@@ -7,52 +7,16 @@
   },
   "files": [
     "electron/main.js",
-    "server.js",
-    ".next/standalone/**/*",
-    ".next/static/**/*",
-    "public/**/*",
-    "prisma/schema.prisma",
-    "node_modules/.prisma/**/*",
-    "node_modules/@prisma/client/**/*",
-    "node_modules/prisma/build/**/*",
-    "node_modules/next/**/*",
-    "node_modules/react/**/*",
-    "node_modules/react-dom/**/*",
-    "node_modules/semver/**/*",
-    "node_modules/@next/**/*",
-    "node_modules/@swc/**/*",
-    "node_modules/styled-jsx/**/*",
-    "node_modules/client-only/**/*",
-    "node_modules/sharp/**/*",
-    "node_modules/@img/**/*",
-    "node_modules/detect-libc/**/*",
     "package.json",
-    ".env"
-  ],
-  "extraResources": [
-    {
-      "from": ".next/standalone",
-      "to": "app",
-      "filter": ["**/*"]
-    },
-    {
-      "from": ".next/static",
-      "to": "app/.next/static",
-      "filter": ["**/*"]
-    },
-    {
-      "from": "public",
-      "to": "app/public",
-      "filter": ["**/*"]
-    },
-    {
-      "from": "prisma/schema.prisma",
-      "to": "app/prisma/schema.prisma"
-    },
-    {
-      "from": ".env",
-      "to": "app/.env"
-    }
+    ".env",
+    ".next/standalone/server.js",
+    ".next/standalone/node_modules/**/*",
+    ".next/standalone/.next/**/*",
+    ".next/static/**/*",
+    ".next/standalone/public/**/*",
+    ".next/standalone/prisma/**/*",
+    "prisma/schema.prisma",
+    "public/**/*"
   ],
   "mac": {
     "category": "public.app-category.productivity",
