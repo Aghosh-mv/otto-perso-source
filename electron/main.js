@@ -14,15 +14,20 @@ let serverProcess = null;
 const PORT = 3000;
 
 function getServerPath() {
+  // In production (packaged app), the app files are in resources/app
+  // In development, they're in the project root
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'app');
+    return path.join(process.resourcesPath, 'app', '.next', 'standalone');
   }
-  return __dirname;
+  return path.join(__dirname, '.next', 'standalone');
 }
 
 function startServer() {
   const serverDir = getServerPath();
   const serverFile = path.join(serverDir, 'server.js');
+
+  console.log('Server directory:', serverDir);
+  console.log('Server file exists:', fs.existsSync(serverFile));
 
   if (!fs.existsSync(serverFile)) {
     console.error('Server file not found:', serverFile);
@@ -33,9 +38,9 @@ function startServer() {
     ...process.env,
     NODE_ENV: 'production',
     PORT: String(PORT),
-    ELECTRON_RUN_AS_NODE: undefined,
   };
 
+  // Use the Electron-bundled Node.js to run the server
   serverProcess = spawn(process.execPath, [serverFile], {
     cwd: serverDir,
     env,
@@ -56,11 +61,13 @@ function waitForServer(callback) {
   const maxAttempts = 60;
   const check = () => {
     if (attempts++ > maxAttempts) {
+      console.error('Server did not start within timeout');
       callback(false);
       return;
     }
     const req = http.get(`http://127.0.0.1:${PORT}/login`, (res) => {
       if (res.statusCode === 200 || res.statusCode === 302) {
+        console.log('Server is ready!');
         callback(true);
       } else {
         setTimeout(check, 500);
@@ -113,6 +120,7 @@ app.whenReady().then(() => {
     if (ready) {
       createWindow();
     } else {
+      // Create window anyway — user will see an error page
       createWindow();
     }
   });
