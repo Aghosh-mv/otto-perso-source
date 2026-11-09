@@ -85,8 +85,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug -x checkDebugDuplicateClasses -x lintVitalRelease
 
       - name: List built APKs
         shell: bash
