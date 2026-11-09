@@ -59,7 +59,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.1.0'
+                  classpath 'com.android.tools.build:gradle:7.4.2'
               }
           }
           allprojects {
@@ -74,7 +74,6 @@ jobs:
           cat > android-project/app/build.gradle << 'EOF'
           apply plugin: 'com.android.application'
           android {
-              namespace 'com.ottoperso.app'
               compileSdk 34
               defaultConfig {
                   applicationId "com.ottoperso.app"
