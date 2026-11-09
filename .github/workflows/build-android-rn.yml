@@ -112,7 +112,7 @@ jobs:
       - name: Create Android project
         working-directory: otto-mobile
         run: |
-          npx react-native init OttoPerso --directory android-app --skip-install --pm npm
+          npx @react-native-community/cli@latest init OttoPerso --directory android-app --skip-install --pm npm
           cd android-app
           npm install --legacy-peer-deps
 
