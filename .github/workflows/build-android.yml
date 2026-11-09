@@ -202,9 +202,12 @@ jobs:
       - name: Build APK
         working-directory: android-project
         run: |
-          gradle wrapper --gradle-version 8.5
+          # Use Gradle 7.5 via direct download instead of system Gradle (which is 9.x)
+          wget -q https://services.gradle.org/distributions/gradle-7.5-bin.zip
+          unzip -q gradle-7.5-bin.zip
+          ./gradle-7.5/bin/gradle wrapper
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug
 
       - name: List built APKs
         shell: bash
