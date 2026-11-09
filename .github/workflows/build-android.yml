@@ -46,7 +46,7 @@ jobs:
 
       - name: Install Capacitor
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen --legacy-peer-deps
 
       - name: Generate Prisma client
         run: bun run db:generate
