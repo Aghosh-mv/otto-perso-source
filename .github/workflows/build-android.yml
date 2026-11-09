@@ -74,6 +74,7 @@ jobs:
           cat > android-project/app/build.gradle << 'EOF'
           apply plugin: 'com.android.application'
           android {
+              namespace 'com.ottoperso.app'
               compileSdk 34
               defaultConfig {
                   applicationId "com.ottoperso.app"
