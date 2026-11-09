@@ -1,0 +1,21 @@
+{
+  "name": "otto-perso-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "build:android": "cd android && ./gradlew assembleRelease",
+    "build:android:debug": "cd android && ./gradlew assembleDebug",
+    "start": "react-native start"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-native": "0.76.3",
+    "react-native-webview": "^13.12.5",
+    "nodejs-mobile-react-native": "^0.5.0"
+  },
+  "devDependencies": {
+    "@react-native/typescript-config": "^0.76.0",
+    "typescript": "^5"
+  }
+}
