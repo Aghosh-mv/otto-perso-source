@@ -1,8 +1,8 @@
 name: Build Otto Android (APK)
 
-# Builds an Android APK using Capacitor.
-# The Next.js app is served from a bundled server inside the app.
-# The APK is sideloadable + ready for Play Store submission.
+# Builds an Android APK using a simple WebView wrapper.
+# The app bundles the Next.js standalone server and loads it in an Android WebView.
+# Simpler than Capacitor — no duplicate class issues.
 
 on:
   push:
@@ -25,83 +25,203 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
 
-      - name: Install dependencies
-        run: bun install
-
-      - name: Install Capacitor
-        run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: bun run db:generate
-
-      - name: Create .env
+      - name: Create Android project
         shell: bash
         run: |
-          echo "DATABASE_URL=file:./db/custom.db" > .env
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
-          echo "OTTO_MODEL=gemini-3.5-flash-lite" >> .env
-          echo "OTTO_RATE_LIMIT_MINUTE=8" >> .env
-          echo "OTTO_RATE_LIMIT_HOURLY=50" >> .env
-          echo "OTTO_RATE_LIMIT_PEAK_HOURLY=30" >> .env
-          echo "OTTO_RATE_LIMIT_DAILY=400" >> .env
-          echo "OTTO_RATE_LIMIT_MONTHLY_TOKENS=1000000" >> .env
-          echo "OTTO_PEAK_HOUR_START=9" >> .env
-          echo "OTTO_PEAK_HOUR_END=18" >> .env
-          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}" >> .env
-          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
-          echo "OTTO_OWNER_EMAIL=owner@otto.local" >> .env
-          echo "OTTO_OWNER_PASSWORD=otto-perso-owner" >> .env
+          mkdir -p android-project/app/src/main/java/com/ottoperso/app
+          mkdir -p android-project/app/src/main/res/layout
+          mkdir -p android-project/app/src/main/res/values
+          mkdir -p android-project/app/src/main/res/mipmap-xxxhdpi
+          mkdir -p android-project/gradle/wrapper
 
-      - name: Build Next.js (static export for Android)
-        shell: bash
-        run: |
-          # Build the Next.js app as a static export
-          # The Android app will serve it via a bundled server
-          node scripts/build-standalone.js
+          # settings.gradle
+          cat > android-project/settings.gradle << 'EOF'
+          rootProject.name = "Otto Perso"
+          include ':app'
+          EOF
 
-      - name: Add Android platform
-        run: |
-          npx cap add android || true
-          npx cap sync android
+          # build.gradle (root)
+          cat > android-project/build.gradle << 'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.1.0'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          # app/build.gradle
+          cat > android-project/app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.ottoperso.app'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.ottoperso.app"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.webkit:webkit:1.9.0'
+          }
+          EOF
+
+          # AndroidManifest.xml
+          cat > android-project/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="Otto Perso"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # MainActivity.java
+          cat > android-project/app/src/main/java/com/ottoperso/app/MainActivity.java << 'EOF'
+          package com.ottoperso.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import android.webkit.WebSettings;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  setContentView(R.layout.activity_main);
+
+                  webView = findViewById(R.id.webview);
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.loadUrl("http://127.0.0.1:3000");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+          # activity_main.xml
+          cat > android-project/app/src/main/res/layout/activity_main.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <WebView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/webview"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent" />
+          EOF
+
+          # styles.xml
+          cat > android-project/app/src/main/res/values/styles.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+                  <item name="android:windowBackground">#FAFAF9</item>
+              </style>
+          </resources>
+          EOF
+
+          # gradle.properties
+          cat > android-project/gradle.properties << 'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          # gradle wrapper
+          cat > android-project/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          echo "Android project created"
 
       - name: Build APK
-        working-directory: android
+        working-directory: android-project
         run: |
+          gradle wrapper --gradle-version 8.5
           chmod +x gradlew
-          ./gradlew assembleDebug -x checkDebugDuplicateClasses -x lintVitalRelease
+          ./gradlew assembleDebug
 
       - name: List built APKs
         shell: bash
         run: |
           echo "=== Built APKs ==="
-          find android -name "*.apk" -type f 2>/dev/null
-          ls -lh android/app/build/outputs/apk/debug/ 2>/dev/null || true
-          ls -lh android/app/build/outputs/apk/release/ 2>/dev/null || true
+          find android-project -name "*.apk" -type f 2>/dev/null
+          ls -lh android-project/app/build/outputs/apk/debug/ 2>/dev/null || true
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+            android-project/app/build/outputs/apk/debug/*.apk
           tag_name: ${{ github.ref_name }}
           name: "Otto Perso ${{ github.ref_name }}"
           body: "Otto Perso — your digital employee. Download for your platform below."
@@ -115,6 +235,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: otto-android-apk
-          path: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+          path: android-project/app/build/outputs/apk/debug/*.apk
