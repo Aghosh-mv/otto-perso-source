@@ -1,0 +1,121 @@
+name: Build Otto Android (APK)
+
+# Builds an Android APK using Capacitor.
+# The Next.js app is served from a bundled server inside the app.
+# The APK is sideloadable + ready for Play Store submission.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Install Capacitor
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Create .env
+        shell: bash
+        run: |
+          echo "DATABASE_URL=file:./db/custom.db" > .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          echo "OTTO_MODEL=gemini-3.5-flash-lite" >> .env
+          echo "OTTO_RATE_LIMIT_MINUTE=8" >> .env
+          echo "OTTO_RATE_LIMIT_HOURLY=50" >> .env
+          echo "OTTO_RATE_LIMIT_PEAK_HOURLY=30" >> .env
+          echo "OTTO_RATE_LIMIT_DAILY=400" >> .env
+          echo "OTTO_RATE_LIMIT_MONTHLY_TOKENS=1000000" >> .env
+          echo "OTTO_PEAK_HOUR_START=9" >> .env
+          echo "OTTO_PEAK_HOUR_END=18" >> .env
+          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}" >> .env
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
+          echo "OTTO_OWNER_EMAIL=owner@otto.local" >> .env
+          echo "OTTO_OWNER_PASSWORD=otto-perso-owner" >> .env
+
+      - name: Build Next.js (static export for Android)
+        shell: bash
+        run: |
+          # Build the Next.js app as a static export
+          # The Android app will serve it via a bundled server
+          node scripts/build-standalone.js
+
+      - name: Add Android platform
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          ./gradlew assembleRelease
+
+      - name: List built APKs
+        shell: bash
+        run: |
+          echo "=== Built APKs ==="
+          find android -name "*.apk" -type f 2>/dev/null
+          ls -lh android/app/build/outputs/apk/debug/ 2>/dev/null || true
+          ls -lh android/app/build/outputs/apk/release/ 2>/dev/null || true
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+          tag_name: ${{ github.ref_name }}
+          name: "Otto Perso ${{ github.ref_name }}"
+          body: "Otto Perso — your digital employee. Download for your platform below."
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: otto-android-apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
