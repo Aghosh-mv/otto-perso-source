@@ -72,9 +72,7 @@ jobs:
 
           # app/build.gradle
           cat > android-project/app/build.gradle << 'EOF'
-          plugins {
-              id 'com.android.application'
-          }
+          apply plugin: 'com.android.application'
           android {
               namespace 'com.ottoperso.app'
               compileSdk 34
@@ -207,7 +205,7 @@ jobs:
         run: |
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
       - name: List built APKs
         shell: bash
