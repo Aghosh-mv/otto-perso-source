@@ -72,12 +72,14 @@ jobs:
         shell: bash
         run: |
           # Copy the Next.js standalone build into the mobile project
-          mkdir -p otto-mobile/node-assets
-          cp -r .next/standalone/* otto-mobile/node-assets/
-          cp -r .next/static otto-mobile/node-assets/.next/static
-          cp -r public otto-mobile/node-assets/public
-          cp prisma/schema.prisma otto-mobile/node-assets/prisma/
-          cp .env otto-mobile/node-assets/.env
+          mkdir -p otto-mobile/node-assets/.next
+          mkdir -p otto-mobile/node-assets/public
+          mkdir -p otto-mobile/node-assets/prisma
+          cp -r .next/standalone/* otto-mobile/node-assets/ 2>/dev/null || true
+          cp -r .next/static otto-mobile/node-assets/.next/static 2>/dev/null || true
+          cp -r public/* otto-mobile/node-assets/public/ 2>/dev/null || true
+          cp prisma/schema.prisma otto-mobile/node-assets/prisma/ 2>/dev/null || true
+          cp .env otto-mobile/node-assets/.env 2>/dev/null || true
           
           # Create the Node.js entry point that the mobile app will run
           cat > otto-mobile/node-assets/server.js << 'EOF'
