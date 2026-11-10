@@ -1523,6 +1523,388 @@ async function toolMusicPlay(args: { query: string; action: 'play' | 'pause' | '
   }
 }
 
+// ─── Weather (Open-Meteo — FREE, NO API KEY) ────────────────────────────────
+async function toolWeather(args: { latitude?: number; longitude?: number; location?: string }) {
+  try {
+    let lat = args.latitude
+    let lon = args.longitude
+
+    // If location given instead of coords, geocode via Open-Meteo's geocoding API (also free, no key)
+    if (!lat || !lon) {
+      if (!args.location) {
+        return { name: 'weather', ok: false, summary: 'Need either latitude/longitude or a location name.', data: { error: 'no location' } }
+      }
+      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(args.location)}&count=1`, { signal: AbortSignal.timeout(10000) })
+      const geoData = await geoRes.json()
+      if (!geoData.results || geoData.results.length === 0) {
+        return { name: 'weather', ok: false, summary: `Location "${args.location}" not found.`, data: { error: 'not found' } }
+      }
+      lat = geoData.results[0].latitude
+      lon = geoData.results[0].longitude
+    }
+
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+
+    const current = data.current
+    const daily = data.daily
+
+    const weatherCodes: Record<number, string> = {
+      0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+      45: 'Fog', 48: 'Depositing rime fog', 51: 'Light drizzle', 53: 'Moderate drizzle',
+      55: 'Dense drizzle', 61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+      71: 'Slight snow', 73: 'Moderate snow', 75: 'Heavy snow', 77: 'Snow grains',
+      80: 'Slight rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+      95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Severe thunderstorm with hail',
+    }
+
+    const weatherDesc = weatherCodes[current?.weather_code] || 'Unknown'
+
+    return {
+      name: 'weather',
+      ok: true,
+      summary: `Weather: ${weatherDesc}, ${current?.temperature_2m}°C (feels like ${current?.apparent_temperature}°C)`,
+      data: {
+        current: {
+          temperature: current?.temperature_2m,
+          feelsLike: current?.apparent_temperature,
+          humidity: current?.relative_humidity_2m,
+          windSpeed: current?.wind_speed_10m,
+          condition: weatherDesc,
+          precipitation: current?.precipitation,
+        },
+        forecast: daily ? {
+          maxTemp: daily.temperature_2m_max?.[0],
+          minTemp: daily.temperature_2m_min?.[0],
+          precipitationProbability: daily.precipitation_probability_max?.[0],
+        } : null,
+        location: args.location || `${lat},${lon}`,
+      },
+      activity: {
+        action: 'weather.check',
+        target: args.location || `${lat},${lon}`,
+        summary: `Otto checked the weather.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return { name: 'weather', ok: false, summary: `Weather check failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── News (APITube — free tier) ────────────────────────────────────────────
+async function toolNewsSearch(args: { query?: string; category?: string }) {
+  try {
+    // Use Hacker News Algolia API (completely free, no key)
+    if (!args.query) {
+      const res = await fetch('https://hn.algolia.com/api/v1/news?tags=front_page', { signal: AbortSignal.timeout(10000) })
+      const data = await res.json()
+      const articles = (data.hits || []).slice(0, 10).map((h: any) => ({
+        title: h.title,
+        url: h.url,
+        author: h.author,
+        points: h.points,
+        createdAt: h.created_at,
+      }))
+      return {
+        name: 'news_search',
+        ok: true,
+        summary: `Top ${articles.length} news stories right now.`,
+        data: { articles },
+      }
+    }
+
+    const res = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(args.query)}&tags=story&hitsPerPage=10`, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+    const articles = (data.hits || []).slice(0, 10).map((h: any) => ({
+      title: h.title,
+      url: h.url,
+      author: h.author,
+      points: h.points,
+      createdAt: h.created_at,
+    }))
+
+    return {
+      name: 'news_search',
+      ok: true,
+      summary: `Found ${articles.length} news articles about "${args.query}".`,
+      data: { articles, query: args.query },
+    }
+  } catch (e) {
+    return { name: 'news_search', ok: false, summary: `News search failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Stocks & Crypto (FREE — CoinGecko + no key needed) ────────────────────
+async function toolStockCrypto(args: { symbol?: string; type: 'stock' | 'crypto' }) {
+  try {
+    if (args.type === 'crypto') {
+      // CoinGecko free API — no key needed
+      const sym = (args.symbol || 'bitcoin').toLowerCase()
+      const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(sym)}&vs_currencies=usd,inr&include_24hr_change=true&include_market_cap=true`, { signal: AbortSignal.timeout(10000) })
+      const data = await res.json()
+
+      const coin = (data as any)[sym]
+      if (!coin) {
+        return { name: 'stock_crypto', ok: false, summary: `Crypto "${args.symbol}" not found.`, data: { error: 'not found' } }
+      }
+
+      return {
+        name: 'stock_crypto',
+        ok: true,
+        summary: `${args.symbol?.toUpperCase()}: $${coin.usd?.toLocaleString()} (${coin.usd_24h_change > 0 ? '+' : ''}${coin.usd_24h_change?.toFixed(2)}% 24h)`,
+        data: {
+          symbol: args.symbol?.toUpperCase(),
+          priceUSD: coin.usd,
+          priceINR: coin.inr,
+          change24h: coin.usd_24h_change,
+          marketCap: coin.usd_market_cap,
+        },
+      }
+    }
+
+    // Stocks — use Finnhub if key exists, otherwise return guidance
+    const finnhubKey = process.env.FINNHUB_API_KEY
+    if (!finnhubKey) {
+      return {
+        name: 'stock_crypto',
+        ok: false,
+        summary: 'Stock prices need a Finnhub API key (free at finnhub.io). Crypto prices work without any key.',
+        data: { error: 'FINNHUB_API_KEY not set' },
+      }
+    }
+
+    const stockSym = (args.symbol || 'AAPL').toUpperCase()
+    const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(stockSym)}&token=${finnhubKey}`, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+
+    if (!data.c) {
+      return { name: 'stock_crypto', ok: false, summary: `Stock "${args.symbol}" not found.`, data: { error: 'not found' } }
+    }
+
+    const change = data.dp
+    return {
+      name: 'stock_crypto',
+      ok: true,
+      summary: `${args.symbol?.toUpperCase()}: $${data.c?.toLocaleString()} (${change > 0 ? '+' : ''}${change?.toFixed(2)}%)`,
+      data: {
+        symbol: args.symbol?.toUpperCase(),
+        currentPrice: data.c,
+        change: data.d,
+        changePercent: data.dp,
+        high: data.h,
+        low: data.l,
+        open: data.o,
+        prevClose: data.pc,
+      },
+    }
+  } catch (e) {
+    return { name: 'stock_crypto', ok: false, summary: `Price lookup failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Translation (LibreTranslate — free, no key for public instance) ───────
+async function toolTranslate(args: { text: string; targetLanguage: string; sourceLanguage?: string }) {
+  try {
+    const res = await fetch('https://libretranslate.com/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        q: args.text,
+        source: args.sourceLanguage || 'auto',
+        target: args.targetLanguage,
+        format: 'text',
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+    const data = await res.json()
+
+    if (data.translatedText) {
+      return {
+        name: 'translate',
+        ok: true,
+        summary: `Translated to ${args.targetLanguage}: "${data.translatedText.slice(0, 100)}"`,
+        data: { translated: data.translatedText, source: args.sourceLanguage, target: args.targetLanguage },
+      }
+    }
+    return { name: 'translate', ok: false, summary: `Translation failed: ${data.error || 'unknown'}`, data: { error: data.error } }
+  } catch (e) {
+    return { name: 'translate', ok: false, summary: `Translation failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Wikipedia Lookup (FREE, no key) ────────────────────────────────────────
+async function toolWikipedia(args: { query: string }) {
+  try {
+    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(args.query)}`, {
+      headers: { 'User-Agent': 'OttoPerso/1.0' },
+      signal: AbortSignal.timeout(10000),
+    })
+
+    if (res.status === 404) {
+      return { name: 'wikipedia', ok: false, summary: `No Wikipedia article found for "${args.query}".`, data: { error: 'not found' } }
+    }
+
+    const data = await res.json()
+    return {
+      name: 'wikipedia',
+      ok: true,
+      summary: `Wikipedia: ${data.title} — ${data.extract?.slice(0, 200)}...`,
+      data: {
+        title: data.title,
+        extract: data.extract,
+        url: data.content_urls?.desktop?.page,
+        thumbnail: data.thumbnail?.source,
+      },
+    }
+  } catch (e) {
+    return { name: 'wikipedia', ok: false, summary: `Wikipedia lookup failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Currency Exchange (FREE — exchangerate-api, no key) ───────────────────
+async function toolCurrencyConvert(args: { amount: number; from: string; to: string }) {
+  try {
+    const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${args.from.toUpperCase()}`, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+
+    const rate = data.rates?.[args.to.toUpperCase()]
+    if (!rate) {
+      return { name: 'currency_convert', ok: false, summary: `Currency ${args.to} not found.`, data: { error: 'not found' } }
+    }
+
+    const converted = args.amount * rate
+    return {
+      name: 'currency_convert',
+      ok: true,
+      summary: `${args.amount} ${args.from.toUpperCase()} = ${converted.toFixed(2)} ${args.to.toUpperCase()}`,
+      data: { amount: args.amount, from: args.from.toUpperCase(), to: args.to.toUpperCase(), rate, converted },
+    }
+  } catch (e) {
+    return { name: 'currency_convert', ok: false, summary: `Currency conversion failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Flights Search (Kiwi.com Tequila API) ─────────────────────────────────
+async function toolFlightSearch(args: { from: string; to: string; date?: string; returnDate?: string }) {
+  const kiwiKey = process.env.KIWI_API_KEY
+  if (!kiwiKey) {
+    return {
+      name: 'flight_search',
+      ok: false,
+      summary: 'Flight search needs a Kiwi.com API key (free at tequila.kiwi.com).',
+      data: { error: 'KIWI_API_KEY not set' },
+    }
+  }
+
+  try {
+    let url = `https://api.tequila.kiwi.com/v2/search?fly_from=${encodeURIComponent(args.from)}&fly_to=${encodeURIComponent(args.to)}&limit=5&curr=USD`
+    if (args.date) url += `&date_from=${args.date}&date_to=${args.date}`
+    if (args.returnDate) url += `&return_from=${args.returnDate}&return_to=${args.returnDate}`
+
+    const res = await fetch(url, {
+      headers: { 'apikey': kiwiKey },
+      signal: AbortSignal.timeout(15000),
+    })
+    const data = await res.json()
+
+    if (!data.data || data.data.length === 0) {
+      return { name: 'flight_search', ok: true, summary: `No flights found from ${args.from} to ${args.to}.`, data: { flights: [] } }
+    }
+
+    const flights = data.data.slice(0, 5).map((f: any) => ({
+      price: f.price,
+      currency: f.currency,
+      airline: f.airlines?.join(', '),
+      departure: f.local_departure,
+      arrival: f.local_arrival,
+      duration: f.duration?.total,
+      stops: f.route?.length - 1,
+      bookingUrl: f.deep_link,
+    }))
+
+    return {
+      name: 'flight_search',
+      ok: true,
+      summary: `Found ${flights.length} flights from ${args.from} to ${args.to}.`,
+      data: { flights },
+      activity: {
+        action: 'flight.search',
+        target: `${args.from} → ${args.to}`,
+        summary: `Otto searched flights from ${args.from} to ${args.to}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return { name: 'flight_search', ok: false, summary: `Flight search failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Maps / Directions (Geoapify — free, no credit card) ──────────────────
+async function toolMapsDirections(args: { from: string; to: string; mode?: string }) {
+  const geoKey = process.env.GEOAPIFY_API_KEY
+  if (!geoKey) {
+    return {
+      name: 'maps_directions',
+      ok: false,
+      summary: 'Directions need a Geoapify API key (free at geoapify.com, no credit card).',
+      data: { error: 'GEOAPIFY_API_KEY not set' },
+    }
+  }
+
+  try {
+    // Geocode both addresses
+    const geocode = async (address: string) => {
+      const res = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(address)}&apiKey=${geoKey}`, { signal: AbortSignal.timeout(10000) })
+      const data = await res.json()
+      if (!data.features?.[0]) throw new Error(`Could not find: ${address}`)
+      return data.features[0].properties
+    }
+
+    const fromLoc = await geocode(args.from)
+    const toLoc = await geocode(args.to)
+
+    // Get route
+    const mode = args.mode || 'drive'
+    const modeMap: Record<string, string> = { drive: 'drive', walk: 'walk', bike: 'bike', transit: 'transit' }
+    const profile = modeMap[mode] || 'drive'
+
+    const res = await fetch(`https://api.geoapify.com/v1/routing?waypoints=${fromLoc.lat},${fromLoc.lon}|${toLoc.lat},${toLoc.lon}&mode=${profile}&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
+    const data = await res.json()
+
+    if (!data.features?.[0]) {
+      return { name: 'maps_directions', ok: false, summary: 'Could not find a route.', data: { error: 'no route' } }
+    }
+
+    const route = data.features[0].properties
+    const durationMin = Math.round(route.time / 60)
+    const distanceKm = (route.distance / 1000).toFixed(1)
+
+    return {
+      name: 'maps_directions',
+      ok: true,
+      summary: `Route from ${args.from} to ${args.to}: ${distanceKm}km, ${durationMin} minutes by ${mode}.`,
+      data: {
+        distance: `${distanceKm} km`,
+        duration: `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`,
+        mode,
+        from: fromLoc.formatted,
+        to: toLoc.formatted,
+      },
+      activity: {
+        action: 'maps.directions',
+        target: `${args.from} → ${args.to}`,
+        summary: `Otto got directions from ${args.from} to ${args.to}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return { name: 'maps_directions', ok: false, summary: `Directions failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 // ─── Catalog exported to the model ─────────────────────────────────────────
 export const TOOL_DEFS: ToolDef[] = [
   {
@@ -1926,6 +2308,106 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['query', 'action'],
     },
   },
+  // ═══ NO-KEY-REQUIRED TOOLS (work immediately, zero setup) ═══════════════
+  {
+    name: 'weather',
+    description: 'Get current weather + forecast for any location. Uses Open-Meteo — completely FREE, no API key needed. Supports city names or coordinates. Use when the user asks about weather.',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string', description: 'City name, e.g. "Mumbai", "New York", "Kochi"' },
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'news_search',
+    description: 'Search news articles or get top headlines. Uses Hacker News Algolia API — completely FREE, no key. Use when the user asks "what\'s happening" or about recent news.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query (optional — leave empty for top headlines)' },
+        category: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'stock_crypto',
+    description: 'Get stock or cryptocurrency prices. Crypto works FREE with no API key (CoinGecko). Stocks need FINNHUB_API_KEY (free at finnhub.io). Use when the user asks about prices.',
+    parameters: {
+      type: 'object',
+      properties: {
+        symbol: { type: 'string', description: 'Ticker symbol (AAPL, TSLA) or crypto ID (bitcoin, ethereum)' },
+        type: { type: 'string', enum: ['stock', 'crypto'] },
+      },
+      required: ['symbol', 'type'],
+    },
+  },
+  {
+    name: 'translate',
+    description: 'Translate text between languages. Uses LibreTranslate — FREE, no key needed. Supports 30+ languages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Text to translate' },
+        targetLanguage: { type: 'string', description: 'Target language code, e.g. "es", "fr", "hi", "ml"' },
+        sourceLanguage: { type: 'string', description: 'Source language code (optional, auto-detected)' },
+      },
+      required: ['text', 'targetLanguage'],
+    },
+  },
+  {
+    name: 'wikipedia',
+    description: 'Look up a topic on Wikipedia and get a summary. FREE, no key. Use for encyclopedic knowledge about people, places, things, concepts.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Topic to look up' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'currency_convert',
+    description: 'Convert between currencies using real-time exchange rates. FREE, no key. Use when the user asks about exchange rates.',
+    parameters: {
+      type: 'object',
+      properties: {
+        amount: { type: 'number', description: 'Amount to convert' },
+        from: { type: 'string', description: 'Source currency code, e.g. "USD"' },
+        to: { type: 'string', description: 'Target currency code, e.g. "INR", "EUR"' },
+      },
+      required: ['amount', 'from', 'to'],
+    },
+  },
+  {
+    name: 'flight_search',
+    description: 'Search for flights between two airports. Requires KIWI_API_KEY (free at tequila.kiwi.com). Returns price, airline, duration, stops.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Origin airport code or city, e.g. "COK" or "Kochi"' },
+        to: { type: 'string', description: 'Destination airport code or city' },
+        date: { type: 'string', description: 'Departure date (YYYY-MM-DD)' },
+        returnDate: { type: 'string', description: 'Return date (YYYY-MM-DD) for round trip' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'maps_directions',
+    description: 'Get directions between two addresses. Requires GEOAPIFY_API_KEY (free at geoapify.com, no credit card). Supports driving, walking, cycling, transit.',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Starting address' },
+        to: { type: 'string', description: 'Destination address' },
+        mode: { type: 'string', enum: ['drive', 'walk', 'bike', 'transit'], default: 'drive' },
+      },
+      required: ['from', 'to'],
+    },
+  },
 ]
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────
@@ -1967,6 +2449,14 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'payment_charge': return await toolPaymentCharge(a as any)
       case 'ride_estimate': return await toolRideEstimate(a as any)
       case 'music_play': return await toolMusicPlay(a as any)
+      case 'weather': return await toolWeather(a as any)
+      case 'news_search': return await toolNewsSearch(a as any)
+      case 'stock_crypto': return await toolStockCrypto(a as any)
+      case 'translate': return await toolTranslate(a as any)
+      case 'wikipedia': return await toolWikipedia(a as any)
+      case 'currency_convert': return await toolCurrencyConvert(a as any)
+      case 'flight_search': return await toolFlightSearch(a as any)
+      case 'maps_directions': return await toolMapsDirections(a as any)
       default:
         return {
           name: call.name,
