@@ -1005,6 +1005,524 @@ async function toolFileList(args: { path?: string }) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// REAL-WORLD ACTION TOOLS — booking, reservations, payments, calendar
+// These give Otto the ability to DO things in the real world.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Hotel Search (Google Places API) ──────────────────────────────────────
+async function toolHotelSearch(args: { location: string; checkIn?: string; checkOut?: string; guests?: number; maxPrice?: number }) {
+  const googleKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!googleKey) {
+    return {
+      name: 'hotel_search',
+      ok: false,
+      summary: 'Hotel search needs a Google Places API key. Ask the user to add one in Settings.',
+      data: { error: 'GOOGLE_PLACES_API_KEY not set' },
+    }
+  }
+
+  try {
+    // Use Google Places Text Search to find hotels
+    const query = `hotels in ${args.location}`
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=lodging&key=${googleKey}`
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const data = await res.json()
+
+    if (!data.results || data.results.length === 0) {
+      return {
+        name: 'hotel_search',
+        ok: true,
+        summary: `No hotels found in ${args.location}.`,
+        data: { hotels: [] },
+      }
+    }
+
+    const hotels = data.results.slice(0, 10).map((place: any) => ({
+      name: place.name,
+      address: place.formatted_address,
+      rating: place.rating,
+      priceLevel: place.price_level, // 1-4
+      openNow: place.opening_hours?.open_now,
+      placeId: place.place_id,
+      location: place.geometry?.location,
+    }))
+
+    return {
+      name: 'hotel_search',
+      ok: true,
+      summary: `Found ${hotels.length} hotels in ${args.location}.`,
+      data: { hotels, location: args.location, checkIn: args.checkIn, checkOut: args.checkOut, guests: args.guests || 1 },
+      activity: {
+        action: 'hotel.search',
+        target: args.location,
+        summary: `Otto searched for hotels in ${args.location}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'hotel_search',
+      ok: false,
+      summary: `Hotel search failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Restaurant Search (Google Places API) ─────────────────────────────────
+async function toolRestaurantSearch(args: { location: string; cuisine?: string; maxPrice?: number; openNow?: boolean }) {
+  const googleKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!googleKey) {
+    return {
+      name: 'restaurant_search',
+      ok: false,
+      summary: 'Restaurant search needs a Google Places API key.',
+      data: { error: 'GOOGLE_PLACES_API_KEY not set' },
+    }
+  }
+
+  try {
+    let query = args.cuisine ? `${args.cuisine} restaurants in ${args.location}` : `restaurants in ${args.location}`
+    if (args.openNow) query += ' open now'
+
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=restaurant&key=${googleKey}`
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const data = await res.json()
+
+    if (!data.results || data.results.length === 0) {
+      return {
+        name: 'restaurant_search',
+        ok: true,
+        summary: `No restaurants found in ${args.location}.`,
+        data: { restaurants: [] },
+      }
+    }
+
+    let restaurants = data.results.slice(0, 15).map((place: any) => ({
+      name: place.name,
+      address: place.formatted_address,
+      rating: place.rating,
+      priceLevel: place.price_level,
+      openNow: place.opening_hours?.open_now,
+      placeId: place.place_id,
+    }))
+
+    // Filter by max price (1-4 scale)
+    if (args.maxPrice) {
+      restaurants = restaurants.filter((r: any) => !r.priceLevel || r.priceLevel <= args.maxPrice!)
+    }
+
+    return {
+      name: 'restaurant_search',
+      ok: true,
+      summary: `Found ${restaurants.length} restaurants in ${args.location}${args.cuisine ? ` (${args.cuisine})` : ''}.`,
+      data: { restaurants, location: args.location },
+      activity: {
+        action: 'restaurant.search',
+        target: args.location,
+        summary: `Otto searched for restaurants in ${args.location}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'restaurant_search',
+      ok: false,
+      summary: `Restaurant search failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Event Search (Ticketmaster API) ───────────────────────────────────────
+async function toolEventSearch(args: { location: string; date?: string; category?: string; keyword?: string }) {
+  const tmKey = process.env.TICKETMASTER_API_KEY
+  if (!tmKey) {
+    return {
+      name: 'event_search',
+      ok: false,
+      summary: 'Event search needs a Ticketmaster API key. Get one free at developer.ticketmaster.com.',
+      data: { error: 'TICKETMASTER_API_KEY not set' },
+    }
+  }
+
+  try {
+    let url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${tmKey}&city=${encodeURIComponent(args.location)}&size=15`
+    if (args.date) url += `&startDateTime=${args.date}T00:00:00Z`
+    if (args.keyword) url += `&keyword=${encodeURIComponent(args.keyword)}`
+    if (args.category) url += `&segmentName=${encodeURIComponent(args.category)}`
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const data = await res.json()
+
+    if (!data._embedded?.events || data._embedded.events.length === 0) {
+      return {
+        name: 'event_search',
+        ok: true,
+        summary: `No events found in ${args.location}.`,
+        data: { events: [] },
+      }
+    }
+
+    const events = data._embedded.events.slice(0, 15).map((ev: any) => ({
+      name: ev.name,
+      type: ev.type,
+      date: ev.dates?.start?.dateTime,
+      status: ev.dates?.status?.code,
+      venue: ev._embedded?.venues?.[0]?.name,
+      venueAddress: ev._embedded?.venues?.[0]?.address?.line1,
+      city: ev._embedded?.venues?.[0]?.city?.name,
+      priceMin: ev.priceRanges?.[0]?.min,
+      priceMax: ev.priceRanges?.[0]?.max,
+      currency: ev.priceRanges?.[0]?.currency,
+      url: ev.url,
+      imageUrl: ev.images?.[0]?.url,
+      id: ev.id,
+    }))
+
+    return {
+      name: 'event_search',
+      ok: true,
+      summary: `Found ${events.length} events in ${args.location}.`,
+      data: { events, location: args.location },
+      activity: {
+        action: 'event.search',
+        target: args.location,
+        summary: `Otto searched for events in ${args.location}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'event_search',
+      ok: false,
+      summary: `Event search failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Calendar Book (Google Calendar API) ───────────────────────────────────
+async function toolCalendarBook(args: { title: string; startTime: string; endTime: string; location?: string; description?: string }) {
+  const calKey = process.env.GOOGLE_CALENDAR_API_KEY
+  const calId = process.env.GOOGLE_CALENDAR_ID
+
+  if (!calKey || !calId) {
+    // Fallback: create a calendar event file (.ics) that the user can open
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Otto Perso//Calendar//EN',
+      'BEGIN:VEVENT',
+      `UID:otto-${Date.now()}@ottoperso.app`,
+      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTSTART:${new Date(args.startTime).toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTEND:${new Date(args.endTime).toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `SUMMARY:${args.title}`,
+      args.location ? `LOCATION:${args.location}` : '',
+      args.description ? `DESCRIPTION:${args.description}` : '',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].filter(Boolean).join('\r\n')
+
+    // Save as .ics file in workspace
+    const { promises: fs } = await import('fs')
+    const path = await import('path')
+    const wsRoot = process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace'
+    const fileName = `calendar-${Date.now()}.ics`
+    await fs.writeFile(path.join(wsRoot, fileName), icsContent, 'utf-8')
+
+    return {
+      name: 'calendar_book',
+      ok: true,
+      summary: `Created calendar event "${args.title}" — saved as ${fileName} in workspace. Open it to add to your calendar.`,
+      data: { title: args.title, startTime: args.startTime, endTime: args.endTime, location: args.location, icsFile: fileName },
+      activity: {
+        action: 'calendar.book',
+        target: args.title,
+        summary: `Otto created calendar event "${args.title}" for ${args.startTime}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  }
+
+  // If Google Calendar API is configured, use it
+  try {
+    const event = {
+      summary: args.title,
+      location: args.location,
+      description: args.description,
+      start: { dateTime: args.startTime, timeZone: 'UTC' },
+      end: { dateTime: args.endTime, timeZone: 'UTC' },
+    }
+
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?key=${calKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+      signal: AbortSignal.timeout(15000),
+    })
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`)
+
+    return {
+      name: 'calendar_book',
+      ok: true,
+      summary: `Booked "${args.title}" on your calendar for ${args.startTime}.`,
+      data: { eventId: data.id, htmlLink: data.htmlLink, title: args.title, startTime: args.startTime },
+      activity: {
+        action: 'calendar.book',
+        target: args.title,
+        summary: `Otto booked "${args.title}" on your calendar.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'calendar_book',
+      ok: false,
+      summary: `Calendar booking failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Payment Setup (Stripe) ────────────────────────────────────────────────
+async function toolPaymentStatus() {
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!stripeKey) {
+    return {
+      name: 'payment_status',
+      ok: true,
+      summary: 'No payment method configured. Otto cannot charge cards or make purchases. Add a Stripe key in Settings to enable payments.',
+      data: { configured: false },
+    }
+  }
+  return {
+    name: 'payment_status',
+    ok: true,
+    summary: 'Payment is configured via Stripe. Otto can charge saved cards.',
+    data: { configured: true, provider: 'stripe' },
+  }
+}
+
+async function toolPaymentCharge(args: { amount: number; currency: string; description: string; customerEmail?: string }) {
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  if (!stripeKey) {
+    return {
+      name: 'payment_charge',
+      ok: false,
+      summary: 'Cannot charge — no Stripe key configured. Add one in Settings.',
+      data: { error: 'STRIPE_SECRET_KEY not set' },
+    }
+  }
+
+  try {
+    // Create a PaymentIntent via Stripe API
+    const amountCents = Math.round(args.amount * 100)
+    const res = await fetch('https://api.stripe.com/v1/payment_intents', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${stripeKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        amount: String(amountCents),
+        currency: args.currency.toLowerCase(),
+        description: args.description,
+        'metadata[otto]': 'true',
+        'metadata[description]': args.description,
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`)
+
+    return {
+      name: 'payment_charge',
+      ok: true,
+      summary: `Created payment intent for ${args.currency.toUpperCase()} ${args.amount} — ${args.description}. Payment ID: ${data.id}. The user needs to confirm the payment.`,
+      data: {
+        paymentIntentId: data.id,
+        clientSecret: data.client_secret,
+        amount: args.amount,
+        currency: args.currency,
+        status: data.status,
+      },
+      activity: {
+        action: 'payment.charge',
+        target: data.id,
+        summary: `Otto initiated payment of ${args.currency.toUpperCase()} ${args.amount} for: ${args.description}`,
+        riskTier: 'critical' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'payment_charge',
+      ok: false,
+      summary: `Payment failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Ride Book (Uber API estimate) ─────────────────────────────────────────
+async function toolRideEstimate(args: { startLatitude: number; startLongitude: number; endLatitude: number; endLongitude: number }) {
+  const uberKey = process.env.UBER_API_KEY
+  if (!uberKey) {
+    return {
+      name: 'ride_estimate',
+      ok: false,
+      summary: 'Ride booking needs an Uber API key. Get one at developer.uber.com.',
+      data: { error: 'UBER_API_KEY not set' },
+    }
+  }
+
+  try {
+    const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${args.startLatitude}&start_longitude=${args.startLongitude}&end_latitude=${args.endLatitude}&end_longitude=${args.endLongitude}`
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Token ${uberKey}` },
+      signal: AbortSignal.timeout(15000),
+    })
+    const data = await res.json()
+
+    if (!data.prices || data.prices.length === 0) {
+      return {
+        name: 'ride_estimate',
+        ok: true,
+        summary: 'No ride options available for this route.',
+        data: { options: [] },
+      }
+    }
+
+    const options = data.prices.map((p: any) => ({
+      type: p.localized_display_name,
+      estimate: p.estimate,
+      lowEstimate: p.low_estimate,
+      highEstimate: p.high_estimate,
+      durationSeconds: p.duration,
+      distance: p.distance,
+      currency: p.currency_code,
+    }))
+
+    return {
+      name: 'ride_estimate',
+      ok: true,
+      summary: `Found ${options.length} ride options.`,
+      data: { options },
+      activity: {
+        action: 'ride.estimate',
+        target: `${args.startLatitude},${args.startLongitude} → ${args.endLatitude},${args.endLongitude}`,
+        summary: `Otto estimated ride options.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'ride_estimate',
+      ok: false,
+      summary: `Ride estimate failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
+  }
+}
+
+// ─── Music Play (local + Spotify) ──────────────────────────────────────────
+async function toolMusicPlay(args: { query: string; action: 'play' | 'pause' | 'next' | 'search' }) {
+  const spotifyKey = process.env.SPOTIFY_API_KEY
+
+  if (args.action === 'search') {
+    if (!spotifyKey) {
+      // Fallback: search via DuckDuckGo for the song
+      try {
+        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(args.query + ' song')}&format=json&no_html=1`
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+        const data = await res.json()
+        return {
+          name: 'music_play',
+          ok: true,
+          summary: `Found results for "${args.query}". To play music, add a Spotify API key in Settings for full playback control.`,
+          data: {
+            query: args.query,
+            results: data.RelatedTopics?.slice(0, 5).map((t: any) => t.Text).filter(Boolean) || [],
+            note: 'Connect Spotify in Settings for full music playback.',
+          },
+        }
+      } catch (e) {
+        return {
+          name: 'music_play',
+          ok: false,
+          summary: `Music search failed: ${(e as Error).message}`,
+          data: { error: (e as Error).message },
+        }
+      }
+    }
+
+    // Spotify search
+    try {
+      // Get access token (simplified — in production use OAuth)
+      const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'grant_type=client_credentials',
+      })
+      const tokenData = await tokenRes.json()
+
+      const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(args.query)}&type=track&limit=5`, {
+        headers: { 'Authorization': `Bearer ${tokenData.access_token}` },
+        signal: AbortSignal.timeout(10000),
+      })
+      const data = await res.json()
+
+      const tracks = data.tracks?.items?.map((t: any) => ({
+        name: t.name,
+        artist: t.artists?.[0]?.name,
+        album: t.album?.name,
+        duration: t.duration_ms,
+        previewUrl: t.preview_url,
+        spotifyUrl: t.external_urls?.spotify,
+        uri: t.uri,
+      })) || []
+
+      return {
+        name: 'music_play',
+        ok: true,
+        summary: `Found ${tracks.length} tracks for "${args.query}".`,
+        data: { tracks },
+        activity: {
+          action: 'music.search',
+          target: args.query,
+          summary: `Otto searched for music: "${args.query}".`,
+          riskTier: 'low' as const,
+        },
+      }
+    } catch (e) {
+      return {
+        name: 'music_play',
+        ok: false,
+        summary: `Spotify search failed: ${(e as Error).message}`,
+        data: { error: (e as Error).message },
+      }
+    }
+  }
+
+  // For play/pause/next — would need Spotify Connect or local audio
+  return {
+    name: 'music_play',
+    ok: true,
+    summary: `Music ${args.action} command received. Connect Spotify in Settings for full playback control.`,
+    data: { action: args.action, query: args.query },
+  }
+}
+
 // ─── Catalog exported to the model ─────────────────────────────────────────
 export const TOOL_DEFS: ToolDef[] = [
   {
@@ -1304,6 +1822,110 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['path', 'content'],
     },
   },
+  // ═══ REAL-WORLD ACTION TOOLS ═══════════════════════════════════════════
+  {
+    name: 'hotel_search',
+    description: 'Search for hotels in a location. Returns name, address, rating, price level. Requires GOOGLE_PLACES_API_KEY. Use when the user asks to book/find a hotel.',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string', description: 'City or area name, e.g. "San Francisco" or "near Times Square NYC"' },
+        checkIn: { type: 'string', description: 'Check-in date (YYYY-MM-DD)' },
+        checkOut: { type: 'string', description: 'Check-out date (YYYY-MM-DD)' },
+        guests: { type: 'number', description: 'Number of guests', default: 1 },
+        maxPrice: { type: 'number', description: 'Max price level (1=budget, 4=luxury)' },
+      },
+      required: ['location'],
+    },
+  },
+  {
+    name: 'restaurant_search',
+    description: 'Search for restaurants in a location. Returns name, address, rating, price level, open now status. Requires GOOGLE_PLACES_API_KEY. Use when the user asks to find/book a restaurant.',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string', description: 'City, area, or address' },
+        cuisine: { type: 'string', description: 'Type of cuisine, e.g. "Italian", "Japanese", "Mexican"' },
+        maxPrice: { type: 'number', description: 'Max price level (1-4)' },
+        openNow: { type: 'boolean', description: 'Only show restaurants open now', default: false },
+      },
+      required: ['location'],
+    },
+  },
+  {
+    name: 'event_search',
+    description: 'Search for events (concerts, sports, theater) in a city. Returns event name, date, venue, price range, and ticket URL. Requires TICKETMASTER_API_KEY (free at developer.ticketmaster.com).',
+    parameters: {
+      type: 'object',
+      properties: {
+        location: { type: 'string', description: 'City name' },
+        date: { type: 'string', description: 'Date (YYYY-MM-DD)' },
+        category: { type: 'string', description: 'Sports|Music|Arts & Theater|Film' },
+        keyword: { type: 'string', description: 'Search keyword, e.g. "Taylor Swift"' },
+      },
+      required: ['location'],
+    },
+  },
+  {
+    name: 'calendar_book',
+    description: 'Create a calendar event. If Google Calendar API is configured, adds directly to the user\'s calendar. Otherwise creates an .ics file the user can open. Use for scheduling meetings, reminders, events.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Event title' },
+        startTime: { type: 'string', description: 'Start time (ISO 8601, e.g. 2026-01-15T19:00:00)' },
+        endTime: { type: 'string', description: 'End time (ISO 8601)' },
+        location: { type: 'string', description: 'Event location' },
+        description: { type: 'string', description: 'Event description' },
+      },
+      required: ['title', 'startTime', 'endTime'],
+    },
+  },
+  {
+    name: 'payment_status',
+    description: 'Check if payment is configured. Otto can charge cards via Stripe if configured. If not configured, tell the user to add a Stripe key in Settings.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'payment_charge',
+    description: 'Charge a payment via Stripe. Creates a payment intent for the specified amount. REQUIRES STRIPE_SECRET_KEY in Settings. This is a HIGH RISK action — always confirm with the user before charging.',
+    parameters: {
+      type: 'object',
+      properties: {
+        amount: { type: 'number', description: 'Amount to charge (e.g. 189.00)' },
+        currency: { type: 'string', description: 'Currency code, e.g. USD, EUR, INR', default: 'USD' },
+        description: { type: 'string', description: 'What the payment is for' },
+        customerEmail: { type: 'string', description: 'Customer email for receipt' },
+      },
+      required: ['amount', 'currency', 'description'],
+    },
+  },
+  {
+    name: 'ride_estimate',
+    description: 'Get ride price estimates (Uber, Lyft, etc.) between two locations. Requires UBER_API_KEY. Returns price range, duration, and ride types available.',
+    parameters: {
+      type: 'object',
+      properties: {
+        startLatitude: { type: 'number' },
+        startLongitude: { type: 'number' },
+        endLatitude: { type: 'number' },
+        endLongitude: { type: 'number' },
+      },
+      required: ['startLatitude', 'startLongitude', 'endLatitude', 'endLongitude'],
+    },
+  },
+  {
+    name: 'music_play',
+    description: 'Search for music or control playback. If Spotify is configured, searches Spotify and returns track info with preview URLs. Otherwise searches the web for the song. Use when the user asks to play music.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Song name, artist, or album' },
+        action: { type: 'string', enum: ['play', 'pause', 'next', 'search'], description: 'search=find songs, play/pause/next=control playback', default: 'search' },
+      },
+      required: ['query', 'action'],
+    },
+  },
 ]
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────
@@ -1337,6 +1959,14 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'file_list': return await toolFileList(a as any)
       case 'file_read': return await toolFileRead(a as any)
       case 'file_write': return await toolFileWrite(a as any)
+      case 'hotel_search': return await toolHotelSearch(a as any)
+      case 'restaurant_search': return await toolRestaurantSearch(a as any)
+      case 'event_search': return await toolEventSearch(a as any)
+      case 'calendar_book': return await toolCalendarBook(a as any)
+      case 'payment_status': return await toolPaymentStatus()
+      case 'payment_charge': return await toolPaymentCharge(a as any)
+      case 'ride_estimate': return await toolRideEstimate(a as any)
+      case 'music_play': return await toolMusicPlay(a as any)
       default:
         return {
           name: call.name,
