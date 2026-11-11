@@ -66,7 +66,7 @@ one is free with no card:
 |----------|---------|-----------|-------|--------|
 | (bundled) Gemini | the brain | free | NO | ships in the app |
 | Geoapify | richer hotels/restaurants/directions | 3,000/day | NO | geoapify.com |
-| Ticketmaster | event_search | 5,000/day | NO | developer.ticketmaster.com |
+| SeatGeek | event_search (structured) | free | NO | seatgeek.com/developer (optional — event_search is keyless by default) |
 | Travelpayouts | flight_search | free | NO | travelpayouts.com |
 | YouTube Data v3 | exact-song music_play | 10,000 units/day | NO | console.cloud.google.com (enable YouTube Data API v3 — no billing) |
 | Finnhub | stock prices | 60/min | NO | finnhub.io |
@@ -74,13 +74,14 @@ one is free with no card:
 | Resend | email_send | 3,000/month | NO | resend.com |
 
 **Zero-key tools** (work with nothing configured): hotel_search, restaurant_search,
-ride_estimate, maps_directions, calendar_book, music_play, weather, news_search,
+event_search, ride_estimate, maps_directions, calendar_book, music_play, weather, news_search,
 stock_crypto, translate, wikipedia, currency_convert, web_search.
 
 **Removed providers** (they required a card or paid account — replaced with the
 free alternatives above): Google Places (card required), Uber (server tokens
 discontinued), Spotify (Premium now required), Kiwi Tequila (closed to new devs),
-Google Calendar (key can't write events — .ics works with every calendar app).
+Google Calendar (key can't write events — .ics works with every calendar app),
+Ticketmaster (signup portal inaccessible — event_search is now keyless web results).
 See `.env.example` for the full audit table and removal reasons.
 
 ### Multi-agent orchestration

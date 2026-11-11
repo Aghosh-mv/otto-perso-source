@@ -1217,71 +1217,68 @@ async function toolRestaurantSearch(args: { location: string; cuisine?: string; 
   }
 }
 
-// ─── Event Search (Ticketmaster API) ───────────────────────────────────────
+// ─── Event Search (keyless — web results; optional SeatGeek for structured) ─
+// Ticketmaster removed (signup friction). Default path is KEYLESS: returns
+// curated search links (Google, DuckDuckGo, Bandsintown) so the user lands on
+// real event results in the browser with zero keys and zero signup.
+// If SEATGEEK_CLIENT_ID is set (free, no card — seatgeek.com/developer), Otto
+// pulls structured event listings (name, date, venue, price, ticket URL) instead.
 async function toolEventSearch(args: { location: string; date?: string; category?: string; keyword?: string }) {
-  const tmKey = process.env.TICKETMASTER_API_KEY
-  if (!tmKey) {
-    return {
-      name: 'event_search',
-      ok: false,
-      summary: 'Event search needs a Ticketmaster API key. Get one free at developer.ticketmaster.com.',
-      data: { error: 'TICKETMASTER_API_KEY not set' },
-    }
-  }
+  const sgId = process.env.SEATGEEK_CLIENT_ID
+  const enc = encodeURIComponent
+  const qParts = ['events in', args.location]
+  if (args.category) qParts.push(args.category)
+  if (args.keyword) qParts.push(args.keyword)
+  if (args.date) qParts.push(args.date)
+  const q = qParts.join(' ')
 
-  try {
-    let url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${tmKey}&city=${encodeURIComponent(args.location)}&size=15`
-    if (args.date) url += `&startDateTime=${args.date}T00:00:00Z`
-    if (args.keyword) url += `&keyword=${encodeURIComponent(args.keyword)}`
-    if (args.category) url += `&segmentName=${encodeURIComponent(args.category)}`
-
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
-    const data = await res.json()
-
-    if (!data._embedded?.events || data._embedded.events.length === 0) {
+  // Optional structured path: SeatGeek (free, no card)
+  if (sgId) {
+    try {
+      const params = new URLSearchParams({ 'venue.city': args.location, per_page: '15', client_id: sgId })
+      if (args.date) params.set('datetime_utc.gte', `${args.date}T00:00:00`)
+      if (args.keyword) params.set('q', args.keyword)
+      const res = await fetch(`https://api.seatgeek.com/2/events?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
+      const data = await res.json()
+      const events = (data.events || []).slice(0, 15).map((ev: any) => ({
+        name: ev.title,
+        type: ev.type,
+        date: ev.datetime_local,
+        venue: ev.venue?.name,
+        city: ev.venue?.city,
+        url: ev.url,
+        priceFrom: ev.stats?.lowest_price,
+        priceTo: ev.stats?.highest_price,
+        currency: 'usd',
+      }))
       return {
         name: 'event_search',
         ok: true,
-        summary: `No events found in ${args.location}.`,
-        data: { events: [] },
+        summary: `Found ${events.length} events in ${args.location} (SeatGeek).`,
+        data: { events, location: args.location, provider: 'seatgeek' },
+        activity: { action: 'event.search', target: args.location, summary: `Otto searched for events in ${args.location}.`, riskTier: 'low' as const },
       }
-    }
+    } catch { /* fall through to keyless */ }
+  }
 
-    const events = data._embedded.events.slice(0, 15).map((ev: any) => ({
-      name: ev.name,
-      type: ev.type,
-      date: ev.dates?.start?.dateTime,
-      status: ev.dates?.status?.code,
-      venue: ev._embedded?.venues?.[0]?.name,
-      venueAddress: ev._embedded?.venues?.[0]?.address?.line1,
-      city: ev._embedded?.venues?.[0]?.city?.name,
-      priceMin: ev.priceRanges?.[0]?.min,
-      priceMax: ev.priceRanges?.[0]?.max,
-      currency: ev.priceRanges?.[0]?.currency,
-      url: ev.url,
-      imageUrl: ev.images?.[0]?.url,
-      id: ev.id,
-    }))
-
-    return {
-      name: 'event_search',
-      ok: true,
-      summary: `Found ${events.length} events in ${args.location}.`,
-      data: { events, location: args.location },
-      activity: {
-        action: 'event.search',
-        target: args.location,
-        summary: `Otto searched for events in ${args.location}.`,
-        riskTier: 'low' as const,
-      },
-    }
-  } catch (e) {
-    return {
-      name: 'event_search',
-      ok: false,
-      summary: `Event search failed: ${(e as Error).message}`,
-      data: { error: (e as Error).message },
-    }
+  // Keyless default: curated search links — zero keys, zero signup
+  const links = [
+    { label: `Google — ${q}`, url: `https://www.google.com/search?q=${enc(q + ' tickets')}` },
+    { label: `DuckDuckGo — ${q}`, url: `https://duckduckgo.com/?q=${enc(q)}` },
+    { label: `Bandsintown — concerts in ${args.location}`, url: `https://www.bandsintown.com/?q=${enc(args.location)}` },
+  ]
+  return {
+    name: 'event_search',
+    ok: true,
+    summary: `Opened web results for events in ${args.location}${args.date ? ' on ' + args.date : ''}. For structured listings, add a free SeatGeek client ID (no card).`,
+    data: {
+      location: args.location,
+      provider: 'keyless-web',
+      links,
+      query: q,
+      note: 'Set SEATGEEK_CLIENT_ID (free, no card — seatgeek.com/developer) for structured event data.',
+    },
+    activity: { action: 'event.search', target: args.location, summary: `Otto searched for events in ${args.location}.`, riskTier: 'low' as const },
   }
 }
 
@@ -2380,7 +2377,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'event_search',
-    description: 'Search for events (concerts, sports, theater) in a city. Returns event name, date, venue, price range, and ticket URL. Requires TICKETMASTER_API_KEY (free at developer.ticketmaster.com).',
+    description: 'Search for events (concerts, sports, theater) in a city. KEYLESS by default — returns curated web-search links (Google, DuckDuckGo, Bandsintown) for real results with zero keys. If SEATGEEK_CLIENT_ID is set (free, no card — seatgeek.com/developer), returns structured event listings (name, date, venue, price, ticket URL). Use when the user asks about events/gigs/shows near a city.',
     parameters: {
       type: 'object',
       properties: {
