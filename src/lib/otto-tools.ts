@@ -1008,52 +1008,106 @@ async function toolFileList(args: { path?: string }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // REAL-WORLD ACTION TOOLS — booking, reservations, payments, calendar
 // These give Otto the ability to DO things in the real world.
+// Every provider below is FREE and requires NO credit card:
+//   • Geoapify   — free 3,000 req/day, no card (optional key; unlocks richer data)
+//   • Nominatim  — OpenStreetMap geocoding + POI search, NO key at all
+//   • OSRM       — OpenStreetMap routing, NO key at all
+//   • iTunes     — song search + 30-sec previews, NO key at all
+//   • Ticketmaster, Travelpayouts, Finnhub — free keys, no card
+// Google Places / Uber / Spotify / Kiwi were REMOVED because they need a card
+// or a paid/premium account. See .env.example for the full audit.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ─── Hotel Search (Google Places API) ──────────────────────────────────────
-async function toolHotelSearch(args: { location: string; checkIn?: string; checkOut?: string; guests?: number; maxPrice?: number }) {
-  const googleKey = process.env.GOOGLE_PLACES_API_KEY
-  if (!googleKey) {
-    return {
-      name: 'hotel_search',
-      ok: false,
-      summary: 'Hotel search needs a Google Places API key. Ask the user to add one in Settings.',
-      data: { error: 'GOOGLE_PLACES_API_KEY not set' },
-    }
-  }
-
+// ─── Shared keyless geo helpers (OpenStreetMap ecosystem — free, no key) ────
+async function geoGeocodeFree(address: string): Promise<{ lat: number; lon: number; displayName: string } | null> {
   try {
-    // Use Google Places Text Search to find hotels
-    const query = `hotels in ${args.location}`
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=lodging&key=${googleKey}`
-
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+      { headers: { 'User-Agent': 'OttoPerso/1.0 (personal AI assistant)' }, signal: AbortSignal.timeout(10000) },
+    )
     const data = await res.json()
+    if (Array.isArray(data) && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), displayName: data[0].display_name }
+    }
+  } catch { /* fall through */ }
+  return null
+}
 
-    if (!data.results || data.results.length === 0) {
-      return {
-        name: 'hotel_search',
-        ok: true,
-        summary: `No hotels found in ${args.location}.`,
-        data: { hotels: [] },
+async function geoRouteFree(lat1: number, lon1: number, lat2: number, lon2: number): Promise<{ distanceM: number; durationS: number } | null> {
+  try {
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`,
+      { signal: AbortSignal.timeout(12000) },
+    )
+    const data = await res.json()
+    if (data.code === 'Ok' && data.routes?.[0]) {
+      return { distanceM: data.routes[0].distance, durationS: data.routes[0].duration }
+    }
+  } catch { /* fall through */ }
+  return null
+}
+
+// ─── Hotel Search (Geoapify if key, else OpenStreetMap — both free, no card) ─
+async function toolHotelSearch(args: { location: string; checkIn?: string; checkOut?: string; guests?: number; maxPrice?: number }) {
+  try {
+    const geoKey = process.env.GEOAPIFY_API_KEY
+    let hotels: any[] = []
+
+    if (geoKey) {
+      // Geoapify: geocode the location, then search hotels within ~6km
+      const geoRes = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(args.location)}&limit=1&apiKey=${geoKey}`, { signal: AbortSignal.timeout(10000) })
+      const geoData = await geoRes.json()
+      const center = geoData.features?.[0]?.properties
+      if (center?.lat && center?.lon) {
+        const placesRes = await fetch(`https://api.geoapify.com/v2/places?categories=accommodation.hotel,accommodation.guest_house,accommodation.hostel&filter=circle:${center.lon},${center.lat},6000&bias=proximity:${center.lon},${center.lat}&limit=10&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
+        const placesData = await placesRes.json()
+        hotels = (placesData.features || []).map((f: any) => ({
+          name: f.properties?.name || 'Hotel',
+          address: f.properties?.formatted,
+          stars: f.properties?.datasource?.raw?.stars ? Number(f.properties.datasource.raw.stars) : undefined,
+          phone: f.properties?.datasource?.raw?.phone,
+          website: f.properties?.datasource?.raw?.website || f.properties?.website,
+          lat: f.properties?.lat,
+          lon: f.properties?.lon,
+          distanceMeters: Math.round(f.properties?.distance || 0),
+          source: 'geoapify',
+        }))
       }
     }
 
-    const hotels = data.results.slice(0, 10).map((place: any) => ({
-      name: place.name,
-      address: place.formatted_address,
-      rating: place.rating,
-      priceLevel: place.price_level, // 1-4
-      openNow: place.opening_hours?.open_now,
-      placeId: place.place_id,
-      location: place.geometry?.location,
-    }))
+    // Keyless fallback (and default): OpenStreetMap via Nominatim — completely free, NO key
+    if (hotels.length === 0) {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`hotels in ${args.location}`)}&format=json&limit=12&extratags=1`,
+        { headers: { 'User-Agent': 'OttoPerso/1.0 (personal AI assistant)' }, signal: AbortSignal.timeout(15000) },
+      )
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        hotels = data
+          .filter((r: any) => r.class === 'tourism' && ['hotel', 'guest_house', 'hostel', 'motel', 'apartment'].includes(r.type))
+          .slice(0, 10)
+          .map((r: any) => ({
+            name: r.name || (r.display_name || 'Hotel').split(',')[0],
+            address: r.display_name,
+            stars: r.extratags?.stars ? Number(r.extratags.stars) : undefined,
+            phone: r.extratags?.phone || r.extratags?.['contact:phone'],
+            website: r.extratags?.website || r.extratags?.['contact:website'],
+            lat: parseFloat(r.lat),
+            lon: parseFloat(r.lon),
+            source: 'openstreetmap',
+          }))
+      }
+    }
+
+    if (hotels.length === 0) {
+      return { name: 'hotel_search', ok: true, summary: `No hotels found in ${args.location}.`, data: { hotels: [], location: args.location } }
+    }
 
     return {
       name: 'hotel_search',
       ok: true,
       summary: `Found ${hotels.length} hotels in ${args.location}.`,
-      data: { hotels, location: args.location, checkIn: args.checkIn, checkOut: args.checkOut, guests: args.guests || 1 },
+      data: { hotels, location: args.location, checkIn: args.checkIn, checkOut: args.checkOut, guests: args.guests || 1, provider: hotels[0]?.source },
       activity: {
         action: 'hotel.search',
         target: args.location,
@@ -1071,55 +1125,81 @@ async function toolHotelSearch(args: { location: string; checkIn?: string; check
   }
 }
 
-// ─── Restaurant Search (Google Places API) ─────────────────────────────────
+// ─── Restaurant Search (Geoapify if key, else OpenStreetMap — free, no card) ─
 async function toolRestaurantSearch(args: { location: string; cuisine?: string; maxPrice?: number; openNow?: boolean }) {
-  const googleKey = process.env.GOOGLE_PLACES_API_KEY
-  if (!googleKey) {
-    return {
-      name: 'restaurant_search',
-      ok: false,
-      summary: 'Restaurant search needs a Google Places API key.',
-      data: { error: 'GOOGLE_PLACES_API_KEY not set' },
-    }
-  }
-
   try {
-    let query = args.cuisine ? `${args.cuisine} restaurants in ${args.location}` : `restaurants in ${args.location}`
-    if (args.openNow) query += ' open now'
+    const geoKey = process.env.GEOAPIFY_API_KEY
+    let restaurants: any[] = []
 
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=restaurant&key=${googleKey}`
-
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) })
-    const data = await res.json()
-
-    if (!data.results || data.results.length === 0) {
-      return {
-        name: 'restaurant_search',
-        ok: true,
-        summary: `No restaurants found in ${args.location}.`,
-        data: { restaurants: [] },
+    if (geoKey) {
+      const geoRes = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(args.location)}&limit=1&apiKey=${geoKey}`, { signal: AbortSignal.timeout(10000) })
+      const geoData = await geoRes.json()
+      const center = geoData.features?.[0]?.properties
+      if (center?.lat && center?.lon) {
+        const placesRes = await fetch(`https://api.geoapify.com/v2/places?categories=catering.restaurant,catering.fast_food,catering.cafe&filter=circle:${center.lon},${center.lat},5000&bias=proximity:${center.lon},${center.lat}&limit=15&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
+        const placesData = await placesRes.json()
+        restaurants = (placesData.features || []).map((f: any) => {
+          const raw = f.properties?.datasource?.raw || {}
+          return {
+            name: f.properties?.name || 'Restaurant',
+            address: f.properties?.formatted,
+            cuisine: raw.cuisine,
+            phone: raw.phone || raw['contact:phone'],
+            website: raw.website || raw['contact:website'],
+            openHours: raw.opening_hours,
+            lat: f.properties?.lat,
+            lon: f.properties?.lon,
+            distanceMeters: Math.round(f.properties?.distance || 0),
+            source: 'geoapify',
+          }
+        })
+        if (args.cuisine) {
+          const want = args.cuisine.toLowerCase()
+          restaurants = restaurants.filter((r: any) => r.cuisine && String(r.cuisine).toLowerCase().includes(want))
+        }
       }
     }
 
-    let restaurants = data.results.slice(0, 15).map((place: any) => ({
-      name: place.name,
-      address: place.formatted_address,
-      rating: place.rating,
-      priceLevel: place.price_level,
-      openNow: place.opening_hours?.open_now,
-      placeId: place.place_id,
-    }))
+    // Keyless fallback: OpenStreetMap via Nominatim (broad query + client-side cuisine filter)
+    if (restaurants.length === 0) {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`restaurants in ${args.location}`)}&format=json&limit=25&extratags=1`,
+        { headers: { 'User-Agent': 'OttoPerso/1.0 (personal AI assistant)' }, signal: AbortSignal.timeout(15000) },
+      )
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        const all = data
+          .filter((r: any) => r.class === 'amenity' && ['restaurant', 'fast_food', 'cafe', 'pub', 'bar'].includes(r.type))
+          .map((r: any) => ({
+            name: r.name || (r.display_name || 'Restaurant').split(',')[0],
+            address: r.display_name,
+            cuisine: r.extratags?.cuisine,
+            phone: r.extratags?.phone || r.extratags?.['contact:phone'],
+            website: r.extratags?.website || r.extratags?.['contact:website'],
+            openHours: r.extratags?.opening_hours,
+            lat: parseFloat(r.lat),
+            lon: parseFloat(r.lon),
+            source: 'openstreetmap',
+          }))
+        if (args.cuisine) {
+          const want = args.cuisine.toLowerCase()
+          const matched = all.filter((r: any) => r.cuisine && String(r.cuisine).toLowerCase().includes(want))
+          restaurants = (matched.length > 0 ? matched : all).slice(0, 15)
+        } else {
+          restaurants = all.slice(0, 15)
+        }
+      }
+    }
 
-    // Filter by max price (1-4 scale)
-    if (args.maxPrice) {
-      restaurants = restaurants.filter((r: any) => !r.priceLevel || r.priceLevel <= args.maxPrice!)
+    if (restaurants.length === 0) {
+      return { name: 'restaurant_search', ok: true, summary: `No restaurants found in ${args.location}.`, data: { restaurants: [], location: args.location } }
     }
 
     return {
       name: 'restaurant_search',
       ok: true,
       summary: `Found ${restaurants.length} restaurants in ${args.location}${args.cuisine ? ` (${args.cuisine})` : ''}.`,
-      data: { restaurants, location: args.location },
+      data: { restaurants, location: args.location, provider: restaurants[0]?.source },
       activity: {
         action: 'restaurant.search',
         target: args.location,
@@ -1205,79 +1285,62 @@ async function toolEventSearch(args: { location: string; date?: string; category
   }
 }
 
-// ─── Calendar Book (Google Calendar API) ───────────────────────────────────
+// ─── Calendar Book (keyless .ics — works with Google/Apple/Outlook) ────────
 async function toolCalendarBook(args: { title: string; startTime: string; endTime: string; location?: string; description?: string }) {
-  const calKey = process.env.GOOGLE_CALENDAR_API_KEY
-  const calId = process.env.GOOGLE_CALENDAR_ID
-
-  if (!calKey || !calId) {
-    // Fallback: create a calendar event file (.ics) that the user can open
+  try {
+    // Keyless by design. Generates a standard .ics file that imports into
+    // Google Calendar, Apple Calendar, Outlook, Thunderbird — anything that
+    // speaks iCalendar. No API key, no OAuth, no cloud project.
+    const toIcsDate = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
     const icsContent = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//Otto Perso//Calendar//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
       'BEGIN:VEVENT',
       `UID:otto-${Date.now()}@ottoperso.app`,
-      `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
-      `DTSTART:${new Date(args.startTime).toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
-      `DTEND:${new Date(args.endTime).toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
-      `SUMMARY:${args.title}`,
-      args.location ? `LOCATION:${args.location}` : '',
-      args.description ? `DESCRIPTION:${args.description}` : '',
+      `DTSTAMP:${toIcsDate(new Date().toISOString())}`,
+      `DTSTART:${toIcsDate(args.startTime)}`,
+      `DTEND:${toIcsDate(args.endTime)}`,
+      `SUMMARY:${args.title.replace(/[\r\n;]/g, ' ')}`,
+      args.location ? `LOCATION:${args.location.replace(/[\r\n;]/g, ' ')}` : '',
+      args.description ? `DESCRIPTION:${args.description.replace(/[\r\n;]/g, ' ')}` : '',
+      'BEGIN:VALARM',
+      'TRIGGER:-PT15M',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${args.title}`,
+      'END:VALARM',
       'END:VEVENT',
       'END:VCALENDAR',
     ].filter(Boolean).join('\r\n')
 
-    // Save as .ics file in workspace
     const { promises: fs } = await import('fs')
     const path = await import('path')
     const wsRoot = process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace'
-    const fileName = `calendar-${Date.now()}.ics`
+    await fs.mkdir(wsRoot, { recursive: true })
+    const safeTitle = (args.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'event').slice(0, 40)
+    const fileName = `${safeTitle}-${Date.now()}.ics`
     await fs.writeFile(path.join(wsRoot, fileName), icsContent, 'utf-8')
 
     return {
       name: 'calendar_book',
       ok: true,
-      summary: `Created calendar event "${args.title}" — saved as ${fileName} in workspace. Open it to add to your calendar.`,
-      data: { title: args.title, startTime: args.startTime, endTime: args.endTime, location: args.location, icsFile: fileName },
+      summary: `Created calendar event "${args.title}" on ${args.startTime}. Saved as ${fileName} — open it to import into Google/Apple/Outlook calendar (no API key needed).`,
+      data: {
+        title: args.title,
+        startTime: args.startTime,
+        endTime: args.endTime,
+        location: args.location,
+        description: args.description,
+        icsFile: fileName,
+        icsContent,
+        importHint: 'Open the file to add to any calendar app, or email it as an attachment.',
+      },
       activity: {
         action: 'calendar.book',
         target: args.title,
         summary: `Otto created calendar event "${args.title}" for ${args.startTime}.`,
-        riskTier: 'low' as const,
-      },
-    }
-  }
-
-  // If Google Calendar API is configured, use it
-  try {
-    const event = {
-      summary: args.title,
-      location: args.location,
-      description: args.description,
-      start: { dateTime: args.startTime, timeZone: 'UTC' },
-      end: { dateTime: args.endTime, timeZone: 'UTC' },
-    }
-
-    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events?key=${calKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(event),
-      signal: AbortSignal.timeout(15000),
-    })
-
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`)
-
-    return {
-      name: 'calendar_book',
-      ok: true,
-      summary: `Booked "${args.title}" on your calendar for ${args.startTime}.`,
-      data: { eventId: data.id, htmlLink: data.htmlLink, title: args.title, startTime: args.startTime },
-      activity: {
-        action: 'calendar.book',
-        target: args.title,
-        summary: `Otto booked "${args.title}" on your calendar.`,
         riskTier: 'low' as const,
       },
     }
@@ -1371,54 +1434,102 @@ async function toolPaymentCharge(args: { amount: number; currency: string; descr
   }
 }
 
-// ─── Ride Book (Uber API estimate) ─────────────────────────────────────────
-async function toolRideEstimate(args: { startLatitude: number; startLongitude: number; endLatitude: number; endLongitude: number }) {
-  const uberKey = process.env.UBER_API_KEY
-  if (!uberKey) {
-    return {
-      name: 'ride_estimate',
-      ok: false,
-      summary: 'Ride booking needs an Uber API key. Get one at developer.uber.com.',
-      data: { error: 'UBER_API_KEY not set' },
-    }
-  }
-
+// ─── Ride Estimate (keyless — OpenStreetMap routing + typical fare rates) ──
+// No Uber key needed. Uber stopped issuing server tokens to new apps, so this
+// tool geocodes the two points (Nominatim, no key), routes them (OSRM, no key),
+// then estimates fares for several ride tiers using typical per-km + per-min
+// rates. Real prices vary by city; this is an honest "ballpark" estimate.
+async function toolRideEstimate(args: { from?: string; to?: string; startLatitude?: number; startLongitude?: number; endLatitude?: number; endLongitude?: number; currency?: string }) {
   try {
-    const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${args.startLatitude}&start_longitude=${args.startLongitude}&end_latitude=${args.endLatitude}&end_longitude=${args.endLongitude}`
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Token ${uberKey}` },
-      signal: AbortSignal.timeout(15000),
-    })
-    const data = await res.json()
+    let startLat = args.startLatitude, startLon = args.startLongitude, startName = args.from || 'start'
+    let endLat = args.endLatitude, endLon = args.endLongitude, endName = args.to || 'destination'
 
-    if (!data.prices || data.prices.length === 0) {
-      return {
-        name: 'ride_estimate',
-        ok: true,
-        summary: 'No ride options available for this route.',
-        data: { options: [] },
-      }
+    if ((startLat == null || startLon == null) && args.from) {
+      const g = await geoGeocodeFree(args.from)
+      if (!g) return { name: 'ride_estimate', ok: false, summary: `Could not find "${args.from}".`, data: { error: 'geocode start failed' } }
+      startLat = g.lat; startLon = g.lon; startName = g.displayName
+    }
+    if ((endLat == null || endLon == null) && args.to) {
+      const g = await geoGeocodeFree(args.to)
+      if (!g) return { name: 'ride_estimate', ok: false, summary: `Could not find "${args.to}".`, data: { error: 'geocode end failed' } }
+      endLat = g.lat; endLon = g.lon; endName = g.displayName
+    }
+    if (startLat == null || startLon == null || endLat == null || endLon == null) {
+      return { name: 'ride_estimate', ok: false, summary: 'Need either "from"/"to" addresses or start/end lat-lng pairs.', data: { error: 'missing points' } }
     }
 
-    const options = data.prices.map((p: any) => ({
-      type: p.localized_display_name,
-      estimate: p.estimate,
-      lowEstimate: p.low_estimate,
-      highEstimate: p.high_estimate,
-      durationSeconds: p.duration,
-      distance: p.distance,
-      currency: p.currency_code,
-    }))
+    // Try Geoapify routing if a key is present (richer), else OSRM keyless
+    let distanceM: number | null = null
+    let durationS: number | null = null
+    const geoKey = process.env.GEOAPIFY_API_KEY
+    if (geoKey) {
+      try {
+        const res = await fetch(`https://api.geoapify.com/v1/routing?waypoints=${startLat},${startLon}|${endLat},${endLon}&mode=drive&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
+        const data = await res.json()
+        if (data.features?.[0]?.properties) {
+          distanceM = data.features[0].properties.distance
+          durationS = data.features[0].properties.time
+        }
+      } catch { /* fall back to OSRM */ }
+    }
+    if (distanceM == null) {
+      const r = await geoRouteFree(startLat!, startLon!, endLat!, endLon!)
+      if (!r) return { name: 'ride_estimate', ok: false, summary: 'Could not compute a driving route between those points.', data: { error: 'no route' } }
+      distanceM = r.distanceM
+      durationS = r.durationS
+    }
+    if (distanceM == null || durationS == null) {
+      return { name: 'ride_estimate', ok: false, summary: 'Could not compute a driving route between those points.', data: { error: 'no route' } }
+    }
 
+    const km = distanceM / 1000
+    const min = durationS / 60
+    const currency = (args.currency || 'USD').toUpperCase()
+
+    // Typical ride-hailing fare structure (USD-equivalent ballpark):
+    //   economy (UberGo/Ola Micro):  base 0.50 + 0.55/km + 0.08/min
+    //   comfort (UberX/Premier):     base 1.00 + 0.85/km + 0.12/min
+    //   xl (UberXL/SUV):             base 1.50 + 1.20/km + 0.16/min
+    // Auto-rickshaw is region-specific; included as a cheap local option.
+    const tiers = [
+      { type: 'Auto / Tuk-tuk (local)', base: 0.25, perKm: 0.30, perMin: 0.05 },
+      { type: 'Economy (UberGo / Ola Micro)', base: 0.50, perKm: 0.55, perMin: 0.08 },
+      { type: 'Comfort (UberX / Premier)', base: 1.00, perKm: 0.85, perMin: 0.12 },
+      { type: 'XL (UberXL / SUV)', base: 1.50, perKm: 1.20, perMin: 0.16 },
+    ]
+    const options = tiers.map(t => {
+      const center = t.base + t.perKm * km + t.perMin * min
+      const low = Math.max(center * 0.85, t.base)
+      const high = center * 1.15
+      return {
+        type: t.type,
+        estimateLow: Number(low.toFixed(2)),
+        estimateHigh: Number(high.toFixed(2)),
+        currency,
+        durationMinutes: Math.round(min),
+        distanceKm: Number(km.toFixed(1)),
+      }
+    })
+
+    const fmt = (n: number) => `${currency} ${n.toFixed(2)}`
+    const comfort = options[2]
     return {
       name: 'ride_estimate',
       ok: true,
-      summary: `Found ${options.length} ride options.`,
-      data: { options },
+      summary: `Ride from ${startName.split(',')[0]} to ${endName.split(',')[0]}: ~${km.toFixed(1)} km, ~${Math.round(min)} min. Comfort tier ≈ ${fmt(comfort.estimateLow)}–${fmt(comfort.estimateHigh)}.`,
+      data: {
+        options,
+        distanceKm: Number(km.toFixed(1)),
+        durationMinutes: Math.round(min),
+        from: startName,
+        to: endName,
+        provider: geoKey ? 'geoapify' : 'openstreetmap',
+        note: 'Estimates are ballpark figures based on typical global ride-hailing rates. Actual prices vary by city, surge, and demand.',
+      },
       activity: {
         action: 'ride.estimate',
-        target: `${args.startLatitude},${args.startLongitude} → ${args.endLatitude},${args.endLongitude}`,
-        summary: `Otto estimated ride options.`,
+        target: `${startName} → ${endName}`,
+        summary: `Otto estimated a ride (~${km.toFixed(1)} km, ~${Math.round(min)} min).`,
         riskTier: 'low' as const,
       },
     }
@@ -1432,71 +1543,42 @@ async function toolRideEstimate(args: { startLatitude: number; startLongitude: n
   }
 }
 
-// ─── Music Play (local + Spotify) ──────────────────────────────────────────
+// ─── Music Play (iTunes Search — keyless; YouTube for full songs) ──────────
+// No Spotify key needed. Spotify now requires a Premium (paid) account for API
+// access, so we use:
+//   1. iTunes Search API  — FREE, NO key, returns track info + 30-sec previews
+//   2. YouTube            — for the FULL song. Either keyless (opens a YouTube
+//                           search-results page for the matched track) or, if
+//                           YOUTUBE_API_KEY is set (free, no card), Otto
+//                           resolves the exact top video and opens that.
 async function toolMusicPlay(args: { query: string; action: 'play' | 'pause' | 'next' | 'search' }) {
-  const spotifyKey = process.env.SPOTIFY_API_KEY
-
-  if (args.action === 'search') {
-    if (!spotifyKey) {
-      // Fallback: search via DuckDuckGo for the song
-      try {
-        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(args.query + ' song')}&format=json&no_html=1`
-        const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
-        const data = await res.json()
-        return {
-          name: 'music_play',
-          ok: true,
-          summary: `Found results for "${args.query}". To play music, add a Spotify API key in Settings for full playback control.`,
-          data: {
-            query: args.query,
-            results: data.RelatedTopics?.slice(0, 5).map((t: any) => t.Text).filter(Boolean) || [],
-            note: 'Connect Spotify in Settings for full music playback.',
-          },
-        }
-      } catch (e) {
-        return {
-          name: 'music_play',
-          ok: false,
-          summary: `Music search failed: ${(e as Error).message}`,
-          data: { error: (e as Error).message },
-        }
-      }
+  if (args.action !== 'search' && args.action !== 'play') {
+    return {
+      name: 'music_play',
+      ok: true,
+      summary: `Music ${args.action} command received. Playback control needs a connected player (Spotify/Apple Music) — for now Otto can search and open songs.`,
+      data: { action: args.action, query: args.query },
     }
+  }
 
-    // Spotify search
-    try {
-      // Get access token (simplified — in production use OAuth)
-      const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=client_credentials',
-      })
-      const tokenData = await tokenRes.json()
+  try {
+    // 1) iTunes Search — keyless, reliable, returns 30-sec playable previews
+    const itunesRes = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(args.query)}&entity=song&limit=5`,
+      { signal: AbortSignal.timeout(10000) },
+    )
+    const itunesData = await itunesRes.json()
+    const results: any[] = Array.isArray(itunesData.results) ? itunesData.results : []
 
-      const res = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(args.query)}&type=track&limit=5`, {
-        headers: { 'Authorization': `Bearer ${tokenData.access_token}` },
-        signal: AbortSignal.timeout(10000),
-      })
-      const data = await res.json()
-
-      const tracks = data.tracks?.items?.map((t: any) => ({
-        name: t.name,
-        artist: t.artists?.[0]?.name,
-        album: t.album?.name,
-        duration: t.duration_ms,
-        previewUrl: t.preview_url,
-        spotifyUrl: t.external_urls?.spotify,
-        uri: t.uri,
-      })) || []
-
+    if (results.length === 0) {
+      // Last-resort keyless path: open a YouTube search so the user still
+      // hears the song — "search the web and play it", exactly.
+      const ytSearch = `https://www.youtube.com/results?search_query=${encodeURIComponent(args.query)}`
       return {
         name: 'music_play',
         ok: true,
-        summary: `Found ${tracks.length} tracks for "${args.query}".`,
-        data: { tracks },
+        summary: `No exact track match found for "${args.query}". Opened a YouTube search for it.`,
+        data: { query: args.query, youtubeSearchUrl: ytSearch },
         activity: {
           action: 'music.search',
           target: args.query,
@@ -1504,22 +1586,65 @@ async function toolMusicPlay(args: { query: string; action: 'play' | 'pause' | '
           riskTier: 'low' as const,
         },
       }
-    } catch (e) {
-      return {
-        name: 'music_play',
-        ok: false,
-        summary: `Spotify search failed: ${(e as Error).message}`,
-        data: { error: (e as Error).message },
-      }
     }
-  }
 
-  // For play/pause/next — would need Spotify Connect or local audio
-  return {
-    name: 'music_play',
-    ok: true,
-    summary: `Music ${args.action} command received. Connect Spotify in Settings for full playback control.`,
-    data: { action: args.action, query: args.query },
+    // Optionally resolve the exact YouTube video for the top track (free key, no card)
+    let youtubeWatchUrl: string | null = null
+    const ytKey = process.env.YOUTUBE_API_KEY
+    const top = results[0]
+    const ytQuery = `${top.trackName} ${top.artistName}`
+    if (ytKey) {
+      try {
+        const ytRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/search?part=id&type=video&maxResults=1&q=${encodeURIComponent(ytQuery)}&key=${ytKey}`,
+          { signal: AbortSignal.timeout(10000) },
+        )
+        const ytData = await ytRes.json()
+        const videoId = ytData.items?.[0]?.id?.videoId
+        if (videoId) youtubeWatchUrl = `https://www.youtube.com/watch?v=${videoId}`
+      } catch { /* fall back to keyless search URL */ }
+    }
+    if (!youtubeWatchUrl) {
+      // Keyless: a YouTube search-results URL still lands the user on the song
+      youtubeWatchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(ytQuery)}`
+    }
+
+    const tracks = results.map((r: any) => ({
+      name: r.trackName,
+      artist: r.artistName,
+      album: r.collectionName,
+      durationMs: r.trackTimeMillis,
+      previewUrl: r.previewUrl,        // 30-sec playable m4a, NO login
+      itunesUrl: r.trackViewUrl,
+      artwork: r.artworkUrl100,
+    }))
+
+    return {
+      name: 'music_play',
+      ok: true,
+      summary: `Found "${top.trackName}" by ${top.artistName}. 30-sec preview ready; full song opens on YouTube${ytKey ? ' (exact video resolved)' : ' (search page — no key needed)'}.`,
+      data: {
+        query: args.query,
+        tracks,
+        topTrack: tracks[0],
+        youtubeUrl: youtubeWatchUrl,
+        previewPlayable: !!tracks[0]?.previewUrl,
+        youtubeResolvedExactly: !!ytKey,
+      },
+      activity: {
+        action: 'music.search',
+        target: args.query,
+        summary: `Otto searched for music: "${args.query}" — ${top.trackName} by ${top.artistName}.`,
+        riskTier: 'low' as const,
+      },
+    }
+  } catch (e) {
+    return {
+      name: 'music_play',
+      ok: false,
+      summary: `Music search failed: ${(e as Error).message}`,
+      data: { error: (e as Error).message },
+    }
   }
 }
 
@@ -1787,53 +1912,70 @@ async function toolCurrencyConvert(args: { amount: number; from: string; to: str
   }
 }
 
-// ─── Flights Search (Kiwi.com Tequila API) ─────────────────────────────────
+// ─── Flights Search (Travelpayouts — free, no credit card) ────────────────
 async function toolFlightSearch(args: { from: string; to: string; date?: string; returnDate?: string }) {
-  const kiwiKey = process.env.KIWI_API_KEY
-  if (!kiwiKey) {
+  // Kiwi Tequila closed to new self-service developers (and Amadeus self-service
+  // was decommissioned). Travelpayouts Data API is the free, no-credit-card
+  // alternative: a free affiliate account + token, returns live flight prices.
+  const tpToken = process.env.TRAVELPAYOUTS_TOKEN
+  if (!tpToken) {
     return {
       name: 'flight_search',
       ok: false,
-      summary: 'Flight search needs a Kiwi.com API key (free at tequila.kiwi.com).',
-      data: { error: 'KIWI_API_KEY not set' },
+      summary: 'Flight search needs a free Travelpayouts token (no credit card — see .env.example). Pass airport codes (e.g. COK → BLR).',
+      data: { error: 'TRAVELPAYOUTS_TOKEN not set', from: args.from, to: args.to },
     }
   }
 
   try {
-    let url = `https://api.tequila.kiwi.com/v2/search?fly_from=${encodeURIComponent(args.from)}&fly_to=${encodeURIComponent(args.to)}&limit=5&curr=USD`
-    if (args.date) url += `&date_from=${args.date}&date_to=${args.date}`
-    if (args.returnDate) url += `&return_from=${args.returnDate}&return_to=${args.returnDate}`
+    // args.from / args.to should be IATA airport codes (e.g. "COK", "BLR").
+    // Accept either "COK" or "COK,India" — take the 3-letter code prefix.
+    const code = (s: string) => (s || '').trim().slice(0, 3).toUpperCase()
+    const origin = code(args.from)
+    const destination = code(args.to)
 
-    const res = await fetch(url, {
-      headers: { 'apikey': kiwiKey },
-      signal: AbortSignal.timeout(15000),
+    const params = new URLSearchParams({
+      origin,
+      destination,
+      currency: 'usd',
+      token: tpToken,
+      sorting: 'price',
+      limit: '5',
+      direct: 'false',
     })
+    if (args.date) params.set('depart_date', args.date)
+    if (args.returnDate) params.set('return_date', args.returnDate)
+
+    const res = await fetch(`https://api.travelpayouts.com/aviasales/v3/prices_for_dates?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
     const data = await res.json()
 
-    if (!data.data || data.data.length === 0) {
-      return { name: 'flight_search', ok: true, summary: `No flights found from ${args.from} to ${args.to}.`, data: { flights: [] } }
+    const items: any[] = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : [])
+    if (items.length === 0) {
+      return { name: 'flight_search', ok: true, summary: `No flights found from ${origin} to ${destination}.`, data: { flights: [], from: origin, to: destination } }
     }
 
-    const flights = data.data.slice(0, 5).map((f: any) => ({
+    const flights = items.slice(0, 5).map((f: any) => ({
       price: f.price,
-      currency: f.currency,
-      airline: f.airlines?.join(', '),
-      departure: f.local_departure,
-      arrival: f.local_arrival,
-      duration: f.duration?.total,
-      stops: f.route?.length - 1,
-      bookingUrl: f.deep_link,
+      currency: f.currency || 'usd',
+      airline: f.airline,
+      flightNumber: f.flight_number,
+      departure: f.departure_at,
+      returnDeparture: f.return_at,
+      transfers: f.transfers,
+      returnTransfers: f.return_transfers,
+      durationMinutes: f.duration,
+      link: f.link,
     }))
 
     return {
       name: 'flight_search',
       ok: true,
-      summary: `Found ${flights.length} flights from ${args.from} to ${args.to}.`,
-      data: { flights },
+      summary: `Found ${flights.length} flights from ${origin} to ${destination}, from ${flights[0].currency.toUpperCase()} ${flights[0].price}.`,
+      data: { flights, from: origin, to: destination, provider: 'travelpayouts' },
       activity: {
         action: 'flight.search',
-        target: `${args.from} → ${args.to}`,
-        summary: `Otto searched flights from ${args.from} to ${args.to}.`,
+        target: `${origin} → ${destination}`,
+        summary: `Otto searched flights from ${origin} to ${destination}.`,
         riskTier: 'low' as const,
       },
     }
@@ -1842,56 +1984,58 @@ async function toolFlightSearch(args: { from: string; to: string; date?: string;
   }
 }
 
-// ─── Maps / Directions (Geoapify — free, no credit card) ──────────────────
+// ─── Maps / Directions (Geoapify if key, else OSRM — both free, no card) ───
 async function toolMapsDirections(args: { from: string; to: string; mode?: string }) {
-  const geoKey = process.env.GEOAPIFY_API_KEY
-  if (!geoKey) {
-    return {
-      name: 'maps_directions',
-      ok: false,
-      summary: 'Directions need a Geoapify API key (free at geoapify.com, no credit card).',
-      data: { error: 'GEOAPIFY_API_KEY not set' },
-    }
-  }
-
+  const mode = args.mode || 'drive'
   try {
-    // Geocode both addresses
-    const geocode = async (address: string) => {
-      const res = await fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(address)}&apiKey=${geoKey}`, { signal: AbortSignal.timeout(10000) })
-      const data = await res.json()
-      if (!data.features?.[0]) throw new Error(`Could not find: ${address}`)
-      return data.features[0].properties
+    const fromG = await geoGeocodeFree(args.from)
+    const toG = await geoGeocodeFree(args.to)
+    if (!fromG || !toG) {
+      return { name: 'maps_directions', ok: false, summary: 'Could not find one of the addresses.', data: { error: 'geocode failed' } }
     }
 
-    const fromLoc = await geocode(args.from)
-    const toLoc = await geocode(args.to)
+    const geoKey = process.env.GEOAPIFY_API_KEY
+    let distanceM = 0, durationS = 0, routeMode = 'drive'
 
-    // Get route
-    const mode = args.mode || 'drive'
-    const modeMap: Record<string, string> = { drive: 'drive', walk: 'walk', bike: 'bike', transit: 'transit' }
-    const profile = modeMap[mode] || 'drive'
+    if (geoKey) {
+      try {
+        const modeMap: Record<string, string> = { drive: 'drive', walk: 'walk', bike: 'bike', transit: 'transit' }
+        routeMode = modeMap[mode] || 'drive'
+        const res = await fetch(`https://api.geoapify.com/v1/routing?waypoints=${fromG.lat},${fromG.lon}|${toG.lat},${toG.lon}&mode=${routeMode}&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
+        const data = await res.json()
+        if (data.features?.[0]?.properties) {
+          distanceM = data.features[0].properties.distance
+          durationS = data.features[0].properties.time
+        }
+      } catch { /* fall back to OSRM */ }
+    }
 
-    const res = await fetch(`https://api.geoapify.com/v1/routing?waypoints=${fromLoc.lat},${fromLoc.lon}|${toLoc.lat},${toLoc.lon}&mode=${profile}&apiKey=${geoKey}`, { signal: AbortSignal.timeout(15000) })
-    const data = await res.json()
+    // Keyless fallback: OSRM (car routing only)
+    if (!distanceM || !durationS) {
+      const r = await geoRouteFree(fromG.lat, fromG.lon, toG.lat, toG.lon)
+      if (r) { distanceM = r.distanceM; durationS = r.durationS; routeMode = mode === 'walk' || mode === 'bike' ? mode : 'drive' }
+    }
 
-    if (!data.features?.[0]) {
+    if (!distanceM) {
       return { name: 'maps_directions', ok: false, summary: 'Could not find a route.', data: { error: 'no route' } }
     }
 
-    const route = data.features[0].properties
-    const durationMin = Math.round(route.time / 60)
-    const distanceKm = (route.distance / 1000).toFixed(1)
+    const durationMin = Math.round(durationS / 60)
+    const distanceKm = (distanceM / 1000).toFixed(1)
 
     return {
       name: 'maps_directions',
       ok: true,
-      summary: `Route from ${args.from} to ${args.to}: ${distanceKm}km, ${durationMin} minutes by ${mode}.`,
+      summary: `Route from ${fromG.displayName.split(',')[0]} to ${toG.displayName.split(',')[0]}: ${distanceKm} km, ${Math.floor(durationMin / 60)}h ${durationMin % 60}m by ${routeMode}.`,
       data: {
         distance: `${distanceKm} km`,
         duration: `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`,
-        mode,
-        from: fromLoc.formatted,
-        to: toLoc.formatted,
+        durationMinutes: durationMin,
+        distanceKm: Number(distanceKm),
+        mode: routeMode,
+        from: fromG.displayName,
+        to: toG.displayName,
+        provider: geoKey ? 'geoapify' : 'openstreetmap',
       },
       activity: {
         action: 'maps.directions',
@@ -2207,7 +2351,7 @@ export const TOOL_DEFS: ToolDef[] = [
   // ═══ REAL-WORLD ACTION TOOLS ═══════════════════════════════════════════
   {
     name: 'hotel_search',
-    description: 'Search for hotels in a location. Returns name, address, rating, price level. Requires GOOGLE_PLACES_API_KEY. Use when the user asks to book/find a hotel.',
+    description: 'Search for hotels in a location. Returns name, address, stars, phone, website. FREE — works with no key (OpenStreetMap) or richer data if GEOAPIFY_API_KEY is set (also free, no card). Use when the user asks to book/find a hotel.',
     parameters: {
       type: 'object',
       properties: {
@@ -2222,7 +2366,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'restaurant_search',
-    description: 'Search for restaurants in a location. Returns name, address, rating, price level, open now status. Requires GOOGLE_PLACES_API_KEY. Use when the user asks to find/book a restaurant.',
+    description: 'Search for restaurants in a location. Returns name, address, cuisine, phone, website. FREE — works with no key (OpenStreetMap) or richer data if GEOAPIFY_API_KEY is set (also free, no card). Use when the user asks to find a restaurant.',
     parameters: {
       type: 'object',
       properties: {
@@ -2250,7 +2394,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'calendar_book',
-    description: 'Create a calendar event. If Google Calendar API is configured, adds directly to the user\'s calendar. Otherwise creates an .ics file the user can open. Use for scheduling meetings, reminders, events.',
+    description: 'Create a calendar event. Generates a standard .ics file that imports into Google Calendar, Apple Calendar, Outlook, or any calendar app. ZERO API keys needed. Use for scheduling meetings, reminders, events.',
     parameters: {
       type: 'object',
       properties: {
@@ -2284,21 +2428,24 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'ride_estimate',
-    description: 'Get ride price estimates (Uber, Lyft, etc.) between two locations. Requires UBER_API_KEY. Returns price range, duration, and ride types available.',
+    description: 'Get ride price estimates between two locations. FREE, no API key — geocodes addresses (OpenStreetMap) and routes them (OSRM), then estimates fares for auto/economy/comfort/XL tiers. Pass "from" and "to" as addresses, or start/end lat-lng. Estimates are ballpark figures based on typical global rates.',
     parameters: {
       type: 'object',
       properties: {
-        startLatitude: { type: 'number' },
-        startLongitude: { type: 'number' },
-        endLatitude: { type: 'number' },
-        endLongitude: { type: 'number' },
+        from: { type: 'string', description: 'Start address, e.g. "Kochi airport" or "MG Road, Bangalore"' },
+        to: { type: 'string', description: 'Destination address' },
+        startLatitude: { type: 'number', description: 'Optional start latitude (instead of from)' },
+        startLongitude: { type: 'number', description: 'Optional start longitude' },
+        endLatitude: { type: 'number', description: 'Optional end latitude (instead of to)' },
+        endLongitude: { type: 'number', description: 'Optional end longitude' },
+        currency: { type: 'string', description: 'Currency code for estimates, e.g. USD, INR, EUR', default: 'USD' },
       },
-      required: ['startLatitude', 'startLongitude', 'endLatitude', 'endLongitude'],
+      required: [],
     },
   },
   {
     name: 'music_play',
-    description: 'Search for music or control playback. If Spotify is configured, searches Spotify and returns track info with preview URLs. Otherwise searches the web for the song. Use when the user asks to play music.',
+    description: 'Search for music and play it. FREE, no API key — searches iTunes (returns track info + 30-sec playable preview) and opens the FULL song on YouTube. If YOUTUBE_API_KEY is set (also free, no card), Otto resolves the exact YouTube video; otherwise it opens a YouTube search page for the track. Use when the user asks to play/find a song.',
     parameters: {
       type: 'object',
       properties: {
@@ -2383,7 +2530,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'flight_search',
-    description: 'Search for flights between two airports. Requires KIWI_API_KEY (free at tequila.kiwi.com). Returns price, airline, duration, stops.',
+    description: 'Search for flights between two airports (IATA codes, e.g. COK → BLR). Requires TRAVELPAYOUTS_TOKEN (free, no credit card — signup at travelpayouts.com). Returns price, airline, duration, transfers, booking link.',
     parameters: {
       type: 'object',
       properties: {

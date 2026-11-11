@@ -39,7 +39,7 @@ Otto ships with a bundled brain key. It works the moment you install. No setup, 
 
 ## What Otto can do
 
-### Tools (26 built-in)
+### Tools (34 built-in)
 Otto calls these autonomously when you ask it to do something:
 
 | Category | Tools |
@@ -50,8 +50,38 @@ Otto calls these autonomously when you ask it to do something:
 | **Tasks** | `task_create`, `task_list`, `task_update` — with dependency DAG |
 | **Agents** | `agent_spawn`, `agent_spawn_multi`, `agent_status`, `agent_list` |
 | **Recipes** | `recipe_create`, `recipe_list`, `recipe_run` |
-| **Comms** | `sms_send`, `email_send` (with credentials) |
+| **Real-world** | `hotel_search`, `restaurant_search`, `event_search`, `calendar_book`, `ride_estimate`, `flight_search`, `maps_directions`, `music_play`, `payment_charge` |
+| **No-key info** | `weather`, `news_search`, `stock_crypto`, `translate`, `wikipedia`, `currency_convert` |
+| **Comms** | `sms_send`, `email_send` (per-user, in-app) |
 | **State** | `system_state`, `activity_log`, `activity_log_custom`, `autonomy_get` |
+
+## API keys — every one is FREE, no credit card
+
+You never have to enter a credit card to use any of Otto's providers. The app
+ships with a bundled brain key and 13 tools that need **zero keys** — they work
+on first run. The optional keys below just unlock extra capabilities, and every
+one is free with no card:
+
+| Provider | Unlocks | Free tier | Card? | Signup |
+|----------|---------|-----------|-------|--------|
+| (bundled) Gemini | the brain | free | NO | ships in the app |
+| Geoapify | richer hotels/restaurants/directions | 3,000/day | NO | geoapify.com |
+| Ticketmaster | event_search | 5,000/day | NO | developer.ticketmaster.com |
+| Travelpayouts | flight_search | free | NO | travelpayouts.com |
+| YouTube Data v3 | exact-song music_play | 10,000 units/day | NO | console.cloud.google.com (enable YouTube Data API v3 — no billing) |
+| Finnhub | stock prices | 60/min | NO | finnhub.io |
+| Stripe (test key) | payment_charge | unlimited test | NO | dashboard.stripe.com/register |
+| Resend | email_send | 3,000/month | NO | resend.com |
+
+**Zero-key tools** (work with nothing configured): hotel_search, restaurant_search,
+ride_estimate, maps_directions, calendar_book, music_play, weather, news_search,
+stock_crypto, translate, wikipedia, currency_convert, web_search.
+
+**Removed providers** (they required a card or paid account — replaced with the
+free alternatives above): Google Places (card required), Uber (server tokens
+discontinued), Spotify (Premium now required), Kiwi Tequila (closed to new devs),
+Google Calendar (key can't write events — .ics works with every calendar app).
+See `.env.example` for the full audit table and removal reasons.
 
 ### Multi-agent orchestration
 Give Otto a complex request, and it decomposes into parallel subtasks:
