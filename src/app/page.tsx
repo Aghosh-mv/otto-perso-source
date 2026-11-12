@@ -21,6 +21,7 @@ import { TimelineView } from '@/components/views/timeline-view'
 import { AnalyticsView } from '@/components/views/analytics-view'
 import { SettingsView } from '@/components/views/settings-view'
 import { WardrobeView } from '@/components/views/wardrobe-view'
+import { VoiceCall } from '@/components/voice/voice-call'
 
 export default function Home() {
   const { view, setView } = useOtto()
@@ -124,6 +125,7 @@ export default function Home() {
         </div>
       </div>
       <CommandPalette />
+      <VoiceCall />
     </div>
   )
 }

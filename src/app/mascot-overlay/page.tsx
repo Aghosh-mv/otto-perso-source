@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { OttoMascot } from '@/components/mascot/OttoMascot'
 import { DEFAULT_MASCOT, type MascotConfig } from '@/components/mascot/wardrobe'
 import { pickProactive, nextDelay, wantsFollowUp, canFireNow, markFired, randomPosition, type Proactive, type ProactiveAction } from '@/components/mascot/proactive'
+import { speak } from '@/components/voice/lok-voice'
 
 // Lok overlay — a transparent, frameless, always-on-top Electron window.
 // Lok is INDEPENDENT: it pops in on its own schedule (even when you didn't ask),
@@ -52,6 +53,7 @@ export default function MascotOverlayPage() {
       setCfg((c) => ({ ...c, mood: p.mood }))
       setSpoken(p)
       markFired()
+      speak(p.message)
       // move to a random screen spot
       try {
         const sw = window.screen.availWidth || 1440
@@ -70,6 +72,7 @@ export default function MascotOverlayPage() {
           setCfg((c) => ({ ...c, mood: p2.mood }))
           setSpoken(p2)
           markFired()
+          speak(p2.message)
           const t3 = window.setTimeout(() => setSpoken(null), 12000)
           timers.current.push(t3)
         }, 16000)
@@ -111,25 +114,21 @@ export default function MascotOverlayPage() {
       {spoken && (
         <div
           style={{
-            alignSelf: 'center', maxWidth: 300, marginBottom: 6,
-            background: 'rgba(20,20,31,0.72)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-            border: '1px solid rgba(183,148,244,0.35)', borderRadius: 20, padding: '12px 14px',
-            color: '#e8e8f0', fontSize: 13, lineHeight: 1.45,
-            boxShadow: '0 12px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08)',
+            alignSelf: 'center', maxWidth: 210, marginBottom: 4,
+            background: 'rgba(20,20,31,0.74)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+            border: '1px solid rgba(183,148,244,0.3)', borderRadius: 14, padding: '8px 11px',
+            color: '#e8e8f0', fontSize: 11.5, lineHeight: 1.4,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)',
             animation: 'lkPop 0.35s cubic-bezier(0.2,0.9,0.3,1.2)',
             ['WebkitAppRegion' as string]: 'no-drag',
           } as React.CSSProperties}
         >
-          <div style={{ fontWeight: 600, marginBottom: 4, color: '#b794f4', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Lok</div>
           <div>{spoken.message}</div>
           {spoken.cta && (
             <button
               onClick={() => doCta(spoken.cta!)}
-              style={{
-                marginTop: 10, padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                background: '#b794f4', color: '#1a1030', fontWeight: 600, fontSize: 12,
-                boxShadow: '0 4px 14px rgba(183,148,244,0.4)',
-              }}
+              style={{ marginTop: 6, padding: 0, border: 'none', background: 'none', cursor: 'pointer',
+                color: '#b794f4', fontSize: 10.5, fontWeight: 600, textDecoration: 'underline' }}
             >{spoken.cta.label} →</button>
           )}
           <style>{`@keyframes lkPop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}`}</style>
