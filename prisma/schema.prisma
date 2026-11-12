@@ -287,3 +287,21 @@ model InviteCode {
   @@index([createdById])
   @@index([status])
 }
+
+// ─── Devices (cross-device Lok presence + active-device routing) ────────────
+// Lets Lok travel between your phone / laptop / desktop on the same account.
+// Each running Otto instance registers a device and heartbeats; the most recent
+// to hear "hey Otto" claims `isActive` and Lok lives there. Others stand down.
+model Device {
+  id          String   @id @default(cuid())
+  name        String   // user-given, e.g. "Pixel 8", "Macbook"
+  kind        String   @default("desktop") // desktop | phone | tablet | web
+  platform    String   @default("") // win | mac | linux | android | ios | web
+  lastSeenAt  DateTime @default(now())
+  isActive    Boolean  @default(false)
+  wakeToken   String?  // optional push token for remote wake (future)
+  createdAt   DateTime @default(now())
+
+  @@index([isActive])
+  @@index([lastSeenAt])
+}

@@ -22,6 +22,7 @@ import { AnalyticsView } from '@/components/views/analytics-view'
 import { SettingsView } from '@/components/views/settings-view'
 import { WardrobeView } from '@/components/views/wardrobe-view'
 import { VoiceCall } from '@/components/voice/voice-call'
+import { startPresence } from '@/lib/presence'
 
 export default function Home() {
   const { view, setView } = useOtto()
@@ -58,6 +59,13 @@ export default function Home() {
     window.addEventListener('storage', onCta)
     return () => window.removeEventListener('storage', onCta)
   }, [setView])
+
+  // Cross-device presence: register this device, claim active on focus, heartbeat
+  // every 30s. Lets Lok travel between your phone / laptop on the same account.
+  useEffect(() => {
+    const p = startPresence()
+    return () => p.stop()
+  }, [])
 
   // Mobile companion shows on phones unless the user navigates to a specific view
   const showCompanion = isMobile && !forceDesktop && view === 'chat'

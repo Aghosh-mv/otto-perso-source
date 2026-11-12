@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useOtto } from '@/components/otto/store'
 import { speak, stopSpeaking, createListener, startWakeWord, type Listener } from './lok-voice'
+import { claimActive, getDeviceId } from '@/lib/presence'
 
 // "Hey Otto" voice call — a small floating mic that's always listening for the
 // wake word. When you say "hey Otto", Lok answers out loud (knowing which tab
@@ -38,6 +39,7 @@ export function VoiceCall() {
   async function activate() {
     if (active.current) return
     active.current = true
+    claimActive(getDeviceId()) // this device is now where Lok lives
     setMode('speaking')
     const where = VIEW_LABELS[view] || 'Otto'
     const greeting = `hey — you're in ${where}. what's up?`

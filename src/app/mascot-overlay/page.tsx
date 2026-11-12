@@ -5,6 +5,7 @@ import { OttoMascot } from '@/components/mascot/OttoMascot'
 import { DEFAULT_MASCOT, type MascotConfig } from '@/components/mascot/wardrobe'
 import { pickProactive, nextDelay, wantsFollowUp, canFireNow, markFired, randomPosition, type Proactive, type ProactiveAction } from '@/components/mascot/proactive'
 import { speak } from '@/components/voice/lok-voice'
+import { getActiveDevice } from '@/lib/presence'
 
 // Lok overlay — a transparent, frameless, always-on-top Electron window.
 // Lok is INDEPENDENT: it pops in on its own schedule (even when you didn't ask),
@@ -47,8 +48,12 @@ export default function MascotOverlayPage() {
     window.addEventListener('storage', onMood)
 
     // ─── Proactive engine: Lok decides when to pop in ────────────────────────
-    const fire = () => {
+    const fire = async () => {
       if (!canFireNow(4)) return
+      // Only pop on the device where Lok currently lives — if another device
+      // (phone/other laptop) is the active one, this one stays quiet.
+      const active = await getActiveDevice()
+      if (active && !active.isMine) return
       const p = pickProactive()
       setCfg((c) => ({ ...c, mood: p.mood }))
       setSpoken(p)
