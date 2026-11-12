@@ -1,3 +1,5 @@
+// @ts-nocheck — React Native app; compiles in the otto-mobile RN project
+// (own tsconfig + node_modules), not the Next.js app build.
 /**
  * Otto Perso — React Native App
  * 
