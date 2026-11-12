@@ -23,7 +23,7 @@ import { SettingsView } from '@/components/views/settings-view'
 import { WardrobeView } from '@/components/views/wardrobe-view'
 
 export default function Home() {
-  const { view } = useOtto()
+  const { view, setView } = useOtto()
   const [isMobile, setIsMobile] = useState(false)
   const [forceDesktop, setForceDesktop] = useState(false)
 
@@ -35,6 +35,28 @@ export default function Home() {
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
+
+  // Listen for Lok (the mascot overlay) CTA signals — when Lok's speech bubble
+  // button is clicked, it sets `otto.mascot.cta` in localStorage; we switch view.
+  useEffect(() => {
+    const onCta = (e: StorageEvent) => {
+      if (e.key === 'otto.mascot.cta' && e.newValue) {
+        const map: Record<string, string> = {
+          'open-vault': 'vault',
+          'open-tasks': 'tasks',
+          'open-drafts': 'vault',
+          'open-wardrobe': 'wardrobe',
+          chat: 'chat',
+        }
+        const v = map[e.newValue]
+        if (v) setView(v as any)
+        try { localStorage.removeItem('otto.mascot.cta') } catch {}
+        try { window.focus() } catch {}
+      }
+    }
+    window.addEventListener('storage', onCta)
+    return () => window.removeEventListener('storage', onCta)
+  }, [setView])
 
   // Mobile companion shows on phones unless the user navigates to a specific view
   const showCompanion = isMobile && !forceDesktop && view === 'chat'

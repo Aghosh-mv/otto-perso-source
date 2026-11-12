@@ -122,8 +122,8 @@ function createWindow() {
 // can pop Lok in with an emote by setting `otto.mascot.mood` in localStorage.
 function createMascotOverlay() {
   mascotWindow = new BrowserWindow({
-    width: 260,
-    height: 340,
+    width: 340,
+    height: 420,
     x: 80,
     y: 80,
     frame: false,
@@ -132,10 +132,11 @@ function createMascotOverlay() {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    focusable: false,
+    focusable: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
   mascotWindow.setAlwaysOnTop(true, 'floating');
@@ -149,6 +150,7 @@ function createMascotOverlay() {
 // IPC — the renderer can ask to show/hide/set-mood on the overlay.
 ipcMain.on('mascot:show', () => { if (mascotWindow) mascotWindow.show(); else createMascotOverlay(); });
 ipcMain.on('mascot:hide', () => { if (mascotWindow) mascotWindow.hide(); });
+ipcMain.on('mascot:move', (_e, x, y) => { try { if (mascotWindow) mascotWindow.setPosition(x, y); } catch {} });
 ipcMain.on('mascot:toggle', () => {
   if (!mascotWindow) { createMascotOverlay(); return; }
   mascotWindow.isVisible() ? mascotWindow.hide() : mascotWindow.show();
