@@ -17,6 +17,7 @@ import {
   Activity,
   BarChart3,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -41,6 +42,7 @@ const NAV: NavItem[] = [
   { key: 'credentials', label: 'Credentials', icon: KeyRound, group: 'system' },
   { key: 'models', label: 'Models', icon: Cpu, group: 'system' },
   { key: 'settings', label: 'Settings', icon: Settings, group: 'system' },
+  { key: 'wardrobe', label: 'Lok', icon: Sparkles, group: 'system' },
 ]
 
 export function Sidebar() {

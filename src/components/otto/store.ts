@@ -16,6 +16,7 @@ export type ViewKey =
   | 'timeline'
   | 'analytics'
   | 'settings'
+  | 'wardrobe'
 
 interface OttoState {
   view: ViewKey

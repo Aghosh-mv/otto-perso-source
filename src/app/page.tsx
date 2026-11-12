@@ -20,6 +20,7 @@ import { RecipesView } from '@/components/views/recipes-view'
 import { TimelineView } from '@/components/views/timeline-view'
 import { AnalyticsView } from '@/components/views/analytics-view'
 import { SettingsView } from '@/components/views/settings-view'
+import { WardrobeView } from '@/components/views/wardrobe-view'
 
 export default function Home() {
   const { view } = useOtto()
@@ -94,6 +95,7 @@ export default function Home() {
               {view === 'timeline' && <TimelineView />}
               {view === 'analytics' && <AnalyticsView />}
               {view === 'settings' && <SettingsView />}
+              {view === 'wardrobe' && <WardrobeView />}
             </div>
           </main>
           <Footer />
