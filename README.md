@@ -39,7 +39,7 @@ Otto ships with a bundled brain key. It works the moment you install. No setup, 
 
 ## What Otto can do
 
-### Tools (34 built-in)
+### Tools (37 built-in)
 Otto calls these autonomously when you ask it to do something:
 
 | Category | Tools |
@@ -51,7 +51,7 @@ Otto calls these autonomously when you ask it to do something:
 | **Agents** | `agent_spawn`, `agent_spawn_multi`, `agent_status`, `agent_list` |
 | **Recipes** | `recipe_create`, `recipe_list`, `recipe_run` |
 | **Real-world** | `hotel_search`, `restaurant_search`, `event_search`, `calendar_book`, `ride_estimate`, `flight_search`, `maps_directions`, `music_play`, `payment_charge` |
-| **No-key info** | `weather`, `news_search`, `stock_crypto`, `translate`, `wikipedia`, `currency_convert` |
+| **No-key info** | `weather`, `news_search`, `stock_crypto`, `translate`, `wikipedia`, `currency_convert`, `youtube_search`, `books_search`, `public_holidays` |
 | **Comms** | `sms_send`, `email_send` (per-user, in-app) |
 | **State** | `system_state`, `activity_log`, `activity_log_custom`, `autonomy_get` |
 
@@ -74,8 +74,9 @@ one is free with no card:
 | Resend | email_send | 3,000/month | NO | resend.com |
 
 **Zero-key tools** (work with nothing configured): hotel_search, restaurant_search,
-event_search, ride_estimate, maps_directions, calendar_book, music_play, weather, news_search,
-stock_crypto, translate, wikipedia, currency_convert, web_search.
+event_search, ride_estimate, maps_directions, calendar_book, music_play, youtube_search,
+books_search, public_holidays, weather, news_search, stock_crypto, translate, wikipedia,
+currency_convert, web_search.
 
 **Removed providers** (they required a card or paid account — replaced with the
 free alternatives above): Google Places (card required), Uber (server tokens

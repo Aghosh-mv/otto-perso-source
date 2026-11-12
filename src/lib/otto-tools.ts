@@ -1909,6 +1909,100 @@ async function toolCurrencyConvert(args: { amount: number; from: string; to: str
   }
 }
 
+// ─── YouTube Search (videos — keyless web; optional API for structured) ────
+// Search YouTube for ANY video: tutorials, talks, reviews, how-tos, music, etc.
+// Keyless default opens a YouTube search-results page. If YOUTUBE_API_KEY is set
+// (free, no card — YouTube Data API v3), returns structured video listings.
+async function toolYouTubeSearch(args: { query: string; maxResults?: number }) {
+  const ytKey = process.env.YOUTUBE_API_KEY
+  const enc = encodeURIComponent
+  if (ytKey) {
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${args.maxResults || 5}&q=${enc(args.query)}&key=${ytKey}`,
+        { signal: AbortSignal.timeout(10000) },
+      )
+      const data = await res.json()
+      const videos = (data.items || []).map((v: any) => ({
+        title: v.snippet?.title,
+        channel: v.snippet?.channelTitle,
+        publishedAt: v.snippet?.publishedAt,
+        description: v.snippet?.description?.slice(0, 200),
+        videoId: v.id?.videoId,
+        url: `https://www.youtube.com/watch?v=${v.id?.videoId}`,
+        thumbnail: v.snippet?.thumbnails?.medium?.url,
+      }))
+      return {
+        name: 'youtube_search',
+        ok: true,
+        summary: `Found ${videos.length} YouTube videos for "${args.query}".`,
+        data: { query: args.query, videos, provider: 'youtube-api' },
+        activity: { action: 'youtube.search', target: args.query, summary: `Otto searched YouTube for "${args.query}".`, riskTier: 'low' as const },
+      }
+    } catch { /* fall through to keyless */ }
+  }
+  // Keyless: open YouTube search results
+  const searchUrl = `https://www.youtube.com/results?search_query=${enc(args.query)}`
+  return {
+    name: 'youtube_search',
+    ok: true,
+    summary: `Opened YouTube search for "${args.query}"${ytKey ? '' : ' (set YOUTUBE_API_KEY for structured results)'}.`,
+    data: { query: args.query, provider: 'keyless-web', youtubeSearchUrl: searchUrl, note: 'Set YOUTUBE_API_KEY (free, no card) for structured video listings.' },
+    activity: { action: 'youtube.search', target: args.query, summary: `Otto searched YouTube for "${args.query}".`, riskTier: 'low' as const },
+  }
+}
+
+// ─── Books Search (Open Library — free, NO key) ────────────────────────────
+async function toolBooksSearch(args: { query: string; maxResults?: number }) {
+  try {
+    const res = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(args.query)}&limit=${args.maxResults || 5}`, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+    const books = (data.docs || []).slice(0, args.maxResults || 5).map((b: any) => ({
+      title: b.title,
+      authors: b.author_name,
+      firstPublishYear: b.first_publish_year,
+      isbn: b.isbn?.[0],
+      cover: b.cover_i ? `https://covers.openlibrary.org/b/id/${b.cover_i}-M.jpg` : undefined,
+      openLibraryUrl: `https://openlibrary.org${b.key}`,
+      editions: b.edition_count,
+    }))
+    return {
+      name: 'books_search',
+      ok: true,
+      summary: `Found ${books.length} books for "${args.query}".`,
+      data: { query: args.query, books, provider: 'openlibrary' },
+      activity: { action: 'books.search', target: args.query, summary: `Otto searched books for "${args.query}".`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'books_search', ok: false, summary: `Book search failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Public Holidays (Nager.Date — free, NO key) ───────────────────────────
+async function toolPublicHolidays(args: { year: number; countryCode: string }) {
+  try {
+    const cc = (args.countryCode || 'US').toUpperCase()
+    const res = await fetch(`https://date.nager.at/api/v3/publicholidays/${args.year}/${cc}`, { signal: AbortSignal.timeout(10000) })
+    const data = await res.json()
+    const holidays = (Array.isArray(data) ? data : []).slice(0, 25).map((h: any) => ({
+      date: h.date,
+      name: h.name,
+      localName: h.localName,
+      types: h.types,
+      global: h.global,
+    }))
+    return {
+      name: 'public_holidays',
+      ok: true,
+      summary: `Found ${holidays.length} public holidays in ${cc} for ${args.year}.`,
+      data: { year: args.year, countryCode: cc, holidays, provider: 'nager.date' },
+      activity: { action: 'holidays.lookup', target: `${cc} ${args.year}`, summary: `Otto looked up public holidays for ${cc} ${args.year}.`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'public_holidays', ok: false, summary: `Holiday lookup failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 // ─── Flights Search (Travelpayouts — free, no credit card) ────────────────
 async function toolFlightSearch(args: { from: string; to: string; date?: string; returnDate?: string }) {
   // Kiwi Tequila closed to new self-service developers (and Amadeus self-service
@@ -2526,6 +2620,42 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'youtube_search',
+    description: 'Search YouTube for ANY video (tutorials, talks, reviews, how-tos, music, documentaries). KEYLESS by default — opens a YouTube search page. If YOUTUBE_API_KEY is set (free, no card), returns structured video listings (title, channel, URL, thumbnail, description). Use when the user asks to find/watch a video on a topic.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What to search for, e.g. "how to tie a tie" or "react hooks tutorial"' },
+        maxResults: { type: 'number', description: 'Max results (1-10). Default 5. Only used if YOUTUBE_API_KEY is set.', default: 5 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'books_search',
+    description: 'Search for books by title/author/subject. FREE, no key — uses Open Library. Returns title, authors, first publish year, ISBN, cover image, Open Library link. Use when the user asks to find a book or look up a title.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Title, author, or subject, e.g. "Dune" or "Murakami"' },
+        maxResults: { type: 'number', description: 'Max results (1-10). Default 5.', default: 5 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'public_holidays',
+    description: 'Get the list of public holidays for a country and year. FREE, no key — uses Nager.Date. Returns date, name, local name, type. Use for planning around holidays/travel.',
+    parameters: {
+      type: 'object',
+      properties: {
+        year: { type: 'number', description: 'Year, e.g. 2026' },
+        countryCode: { type: 'string', description: 'ISO 2-letter country code, e.g. "US", "IN", "GB"' },
+      },
+      required: ['year', 'countryCode'],
+    },
+  },
+  {
     name: 'flight_search',
     description: 'Search for flights between two airports (IATA codes, e.g. COK → BLR). Requires TRAVELPAYOUTS_TOKEN (free, no credit card — signup at travelpayouts.com). Returns price, airline, duration, transfers, booking link.',
     parameters: {
@@ -2599,6 +2729,9 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'translate': return await toolTranslate(a as any)
       case 'wikipedia': return await toolWikipedia(a as any)
       case 'currency_convert': return await toolCurrencyConvert(a as any)
+      case 'youtube_search': return await toolYouTubeSearch(a as any)
+      case 'books_search': return await toolBooksSearch(a as any)
+      case 'public_holidays': return await toolPublicHolidays(a as any)
       case 'flight_search': return await toolFlightSearch(a as any)
       case 'maps_directions': return await toolMapsDirections(a as any)
       default:
