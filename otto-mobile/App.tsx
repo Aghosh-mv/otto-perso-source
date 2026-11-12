@@ -25,7 +25,14 @@ import {
 import { WebView } from 'react-native-webview';
 import NodeJS from 'nodejs-mobile-react-native';
 
-const SERVER_URL = 'http://localhost:3000';
+// Cross-device Lok: set REMOTE_URL to a shared hosted Otto backend
+// (e.g. 'https://otto.yourhost.com') to join your account across phone + laptop.
+// When set, the app skips the bundled nodejs-mobile server and loads the shared
+// backend — so chats, Lok, agents, and vault are the SAME on every device.
+// Leave empty for the offline-capable single-device bundle.
+const REMOTE_URL = ''; // ← set your hosted Otto URL here (or via react-native-config)
+const SERVER_URL = REMOTE_URL || 'http://localhost:3000';
+const USE_REMOTE = !!REMOTE_URL;
 
 export default function App() {
   const [serverReady, setServerReady] = useState(false);
@@ -38,7 +45,29 @@ export default function App() {
 
   const startServer = async () => {
     try {
-      // Initialize nodejs-mobile
+      // Remote mode: skip the bundled nodejs-mobile server, just poll the shared backend.
+      if (USE_REMOTE) {
+        const checkInterval = setInterval(async () => {
+          try {
+            const response = await fetch(`${SERVER_URL}/login`, { method: 'HEAD' });
+            if (response.ok || response.status === 302) {
+              clearInterval(checkInterval);
+              setServerReady(true);
+            }
+          } catch {
+            // backend not reachable yet
+          }
+        }, 1000);
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          if (!serverReady) {
+            setError('Cannot reach the Otto backend. Check your connection / REMOTE_URL.');
+          }
+        }, 30000);
+        return;
+      }
+
+      // Local mode: start the Node.js server inside the app
       await NodeJS.start('main.js');
 
       // Wait for the server to be ready
