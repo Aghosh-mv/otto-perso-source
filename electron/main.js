@@ -13,6 +13,11 @@ let mainWindow = null;
 let mascotWindow = null;
 let serverProcess = null;
 const PORT = 3000;
+// If OTTO_REMOTE_URL is set (e.g. https://otto.yourhost.com), the app talks to
+// a shared hosted backend instead of bundling its own local server — this is
+// what enables true cross-device Lok (phone + laptop, same account/backend).
+const BASE = process.env.OTTO_REMOTE_URL || `http://127.0.0.1:${PORT}`;
+const REMOTE = !!process.env.OTTO_REMOTE_URL;
 
 function getServerPath() {
   // In production (packaged app), the app files are in resources/app
@@ -66,7 +71,7 @@ function waitForServer(callback) {
       callback(false);
       return;
     }
-    const req = http.get(`http://127.0.0.1:${PORT}/login`, (res) => {
+    const req = http.get(`${BASE}/login`, (res) => {
       if (res.statusCode === 200 || res.statusCode === 302) {
         console.log('Server is ready!');
         callback(true);
@@ -100,10 +105,10 @@ function createWindow() {
     trafficLightPosition: { x: 16, y: 16 },
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${PORT}`);
+  mainWindow.loadURL(BASE);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
+    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost') || url.startsWith(BASE)) {
       return { action: 'allow' };
     }
     shell.openExternal(url);
@@ -140,7 +145,7 @@ function createMascotOverlay() {
     },
   });
   mascotWindow.setAlwaysOnTop(true, 'floating');
-  mascotWindow.loadURL(`http://127.0.0.1:${PORT}/mascot-overlay`);
+  mascotWindow.loadURL(`${BASE}/mascot-overlay`);
   mascotWindow.on('closed', () => { mascotWindow = null; });
   // Click-through on transparent pixels (Electron >=20). Falls back gracefully
   // on older builds — the mascot stays draggable.
@@ -171,7 +176,7 @@ ipcMain.on('mascot:mood', (_e, mood) => {
 });
 
 app.whenReady().then(() => {
-  startServer();
+  if (!REMOTE) startServer(); // bundled local server; skip when using a shared remote backend
   waitForServer((ready) => {
     if (ready) {
       createWindow();

@@ -6,6 +6,7 @@ import { DEFAULT_MASCOT, type MascotConfig } from '@/components/mascot/wardrobe'
 import { pickProactive, nextDelay, wantsFollowUp, canFireNow, markFired, randomPosition, type Proactive, type ProactiveAction } from '@/components/mascot/proactive'
 import { speak } from '@/components/voice/lok-voice'
 import { getActiveDevice } from '@/lib/presence'
+import { fetchMascotConfig } from '@/components/mascot/sync'
 
 // Lok overlay — a transparent, frameless, always-on-top Electron window.
 // Lok is INDEPENDENT: it pops in on its own schedule (even when you didn't ask),
@@ -34,6 +35,10 @@ export default function MascotOverlayPage() {
 
   useEffect(() => {
     setCfg(loadConfig())
+    // Sync mascot config from the DB (cross-device) + poll so a config change
+    // on another device (e.g. dressing Lok on your phone) reflects here live.
+    fetchMascotConfig().then(setCfg)
+    const syncTimer = window.setInterval(() => { fetchMascotConfig().then(setCfg) }, 10_000)
     const onStorage = (e: StorageEvent) => { if (e.key === STORAGE_KEY) setCfg(loadConfig()) }
     const onMood = (e: StorageEvent) => {
       if (e.key === 'otto.mascot.mood' && e.newValue) {
@@ -98,6 +103,7 @@ export default function MascotOverlayPage() {
     return () => {
       window.removeEventListener('storage', onStorage)
       window.removeEventListener('storage', onMood)
+      window.clearInterval(syncTimer)
       timers.current.forEach(clearTimeout)
     }
   }, [])

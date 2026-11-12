@@ -22,6 +22,7 @@ import { AnalyticsView } from '@/components/views/analytics-view'
 import { SettingsView } from '@/components/views/settings-view'
 import { WardrobeView } from '@/components/views/wardrobe-view'
 import { VoiceCall } from '@/components/voice/voice-call'
+import { DevPanels } from '@/components/panels/dev-panels'
 import { startPresence } from '@/lib/presence'
 
 export default function Home() {
@@ -134,6 +135,7 @@ export default function Home() {
       </div>
       <CommandPalette />
       <VoiceCall />
+      <DevPanels />
     </div>
   )
 }

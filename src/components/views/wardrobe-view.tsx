@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { OttoMascot } from '@/components/mascot/OttoMascot'
 import {
   SKINS, ACCESSORIES, MOODS, PRESETS, EYE_COLORS, DEFAULT_MASCOT, type MascotConfig,
 } from '@/components/mascot/wardrobe'
+import { fetchMascotConfig, saveMascotConfig } from '@/components/mascot/sync'
 
 // Wardrobe — customize Lok. Body preset, skin, eye color, expressiveness, size,
 // accessories (grouped, incl. an opt-in Spicy pack of cheeky non-explicit gags),
@@ -33,9 +34,15 @@ export function WardrobeView() {
   const [acc, setAcc] = useState<Set<string>>(new Set(cfg.accessories))
   const [showSpicy, setShowSpicy] = useState(false)
 
+  // Sync mascot config from the DB (cross-device) on mount.
+  useEffect(() => {
+    fetchMascotConfig().then((c) => { setCfg(c); setAcc(new Set(c.accessories)) })
+  }, [])
+
   const persist = (next: MascotConfig) => {
     setCfg(next)
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+    saveMascotConfig(next) // DB-backed — travels to other devices on the account
   }
   const set = <K extends keyof MascotConfig>(k: K, v: MascotConfig[K]) => persist({ ...cfg, [k]: v })
   const toggleAcc = (id: string) => {

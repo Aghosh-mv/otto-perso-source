@@ -208,13 +208,37 @@ async function toolAgentSpawn(args: {
   modelName?: string
   autoRun?: boolean
 }) {
+  // Only spawn user-created, named bots — Otto can't invent agent names anymore.
+  // The user defines bots in the Bots tab; Otto picks from those.
+  const bot = await db.customBot.findFirst({
+    where: { name: args.name, isActive: true },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!bot) {
+    const available = await db.customBot.findMany({
+      where: { isActive: true },
+      select: { name: true, description: true },
+      take: 20,
+    })
+    return {
+      name: 'agent_spawn',
+      ok: false,
+      summary: `Can't spawn "${args.name}" — that isn't a bot the user created. Otto only spawns user-created, named bots (from the Bots tab). Available: ${available.length ? available.map((b) => b.name).join(', ') : '(none yet — ask the user to create one in the Bots tab first)'}.`,
+      data: {
+        error: 'not a user-created bot',
+        requested: args.name,
+        available: available.map((b) => ({ name: b.name, description: b.description })),
+      },
+    }
+  }
+
   const agent = await db.agent.create({
     data: {
-      name: args.name,
+      name: bot.name,
       kind: args.kind || 'worker',
       status: 'idle',
       task: args.task,
-      modelName: args.modelName || 'gemini-3.5-flash-lite',
+      modelName: bot.modelName || args.modelName || 'gemini-3.5-flash-lite',
     },
   })
 
@@ -237,19 +261,20 @@ async function toolAgentSpawn(args: {
   return {
     name: 'agent_spawn',
     ok: true,
-    summary: `Spawned new Otto brain "${args.name}" for: ${args.task}${runStarted ? ' — brain is now running' : ' — brain idle, run via /api/agents/[id]/run'}`,
+    summary: `Spawned "${bot.name}" (user-created bot) for: ${args.task}${runStarted ? ' — running' : ' — idle, run via /api/agents/[id]/run'}`,
     data: {
       id: agent.id,
       name: agent.name,
       kind: agent.kind,
       task: agent.task,
       autoRun: runStarted,
+      botId: bot.id,
       runEndpoint: `/api/agents/${agent.id}/run`,
     },
     activity: {
       action: 'agent.spawn',
       target: agent.id,
-      summary: `Otto spawned new brain "${args.name}" for: ${args.task}${runStarted ? ' (auto-running)' : ''}`,
+      summary: `Otto spawned user-created bot "${bot.name}" for: ${args.task}${runStarted ? ' (auto-running)' : ''}`,
       riskTier: 'medium' as const,
     },
   }
@@ -330,37 +355,33 @@ async function toolAgentStatus(args: { agentId?: string; name?: string }) {
 async function toolAgentSpawnMulti(args: {
   workers: { name: string; task: string; kind?: string }[]
 }) {
-  // Spawn multiple agents in one call. Each auto-runs.
-  // Otto uses this when it decomposes a complex request into parallel subtasks.
+  // Only spawn user-created, named bots. Workers whose names don't match a
+  // user-created bot are refused (and listed), so Otto learns to use the user's
+  // bots instead of inventing names like Inboxer/Scout/etc.
   const { runAgent } = await import('@/lib/agent-runtime')
+  const bots = await db.customBot.findMany({ where: { isActive: true } })
+  const botByName = new Map(bots.map((b) => [b.name, b]))
   const spawned: Array<{ id: string; name: string; task: string; autoRun: boolean }> = []
+  const refused: Array<{ name: string }> = []
   for (const w of args.workers) {
+    const bot = botByName.get(w.name)
+    if (!bot) { refused.push({ name: w.name }); continue }
     const agent = await db.agent.create({
-      data: {
-        name: w.name,
-        kind: w.kind || 'worker',
-        status: 'idle',
-        task: w.task,
-        modelName: 'gemini-3.5-flash-lite',
-      },
+      data: { name: bot.name, kind: w.kind || 'worker', status: 'idle', task: w.task, modelName: bot.modelName || 'gemini-3.5-flash-lite' },
     })
     spawned.push({ id: agent.id, name: agent.name, task: agent.task || w.task, autoRun: true })
-    // Fire and forget
-    runAgent(agent.id).catch((e) => {
-      console.error(`[agent_spawn_multi] auto-run failed for ${agent.id}:`, e)
-    })
+    runAgent(agent.id).catch((e) => console.error(`[agent_spawn_multi] auto-run failed for ${agent.id}:`, e))
   }
+  const available = bots.map((b) => b.name)
+  const summary = spawned.length
+    ? `Spawned ${spawned.length} user-created bot${spawned.length === 1 ? '' : 's'}: ${spawned.map((s) => `"${s.name}"`).join(', ')}. All running.${refused.length ? ` Refused ${refused.length} (not user-created): ${refused.map((r) => r.name).join(', ')}.` : ''}`
+    : `Refused all — none of [${args.workers.map((w) => w.name).join(', ')}] are user-created bots. Available: ${available.length ? available.join(', ') : '(none — ask the user to create bots in the Bots tab first)'}.`
   return {
     name: 'agent_spawn_multi',
-    ok: true,
-    summary: `Spawned ${spawned.length} new Otto brains: ${spawned.map((s) => `"${s.name}"`).join(', ')}. All running.`,
-    data: { workers: spawned },
-    activity: {
-      action: 'agent.spawn_multi',
-      target: spawned.map((s) => s.id).join(','),
-      summary: `Otto spawned ${spawned.length} new brains in parallel: ${spawned.map((s) => `"${s.name}"`).join(', ')}`,
-      riskTier: 'medium' as const,
-    },
+    ok: spawned.length > 0,
+    summary,
+    data: { workers: spawned, refused, available },
+    ...(spawned.length ? { activity: { action: 'agent.spawn_multi', target: spawned.map((s) => s.id).join(','), summary: `Otto spawned ${spawned.length} user-created bots in parallel: ${spawned.map((s) => `"${s.name}"`).join(', ')}`, riskTier: 'medium' as const } } : {}),
   }
 }
 
@@ -2201,11 +2222,11 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'agent_spawn',
-    description: 'Spawn a new Otto brain to handle a subtask in parallel. The new brain is a complete Otto instance — its own brain, its own tools, focused on one job. By default the new brain auto-runs immediately: it thinks, calls tools, and writes a result. Set autoRun=false to spawn idle.',
+    description: 'Spawn a user-created bot to handle a subtask. ONLY spawn bots the user has created and named in the Bots tab — Otto does NOT invent agent names. If unsure, call agent_list/bots first or ask the user. By default the bot auto-runs immediately: it thinks, calls tools, writes a result. Set autoRun=false to spawn idle.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Creative memorable name — "Inboxer", "Fred", "Scout", "Scribe", "Atlas"' },
+        name: { type: 'string', description: 'Name of a bot the USER created in the Bots tab (must match exactly). Otto cannot invent names — if it doesn\'t match a user-created bot, the spawn is refused.' },
         kind: { type: 'string', description: 'worker|custom', default: 'worker' },
         task: { type: 'string', description: 'What this new brain should do — be specific, this becomes the brain\'s full instruction' },
         autoRun: { type: 'boolean', description: 'If true (default), the new brain starts thinking immediately. If false, it spawns idle and can be run later via /api/agents/[id]/run.', default: true },
@@ -2231,7 +2252,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'agent_spawn_multi',
-    description: 'Spawn multiple new Otto brains in one call — use this when decomposing a complex request into parallel subtasks. Each new brain auto-runs. Pick creative names for the new brains (e.g. "Inboxer", "Fred", "Scout", "Scribe") — they should be memorable and reflect the task. Each brain runs autonomously and writes a result. Example: for "check my inbox, plan my event, scan socials" you\'d spawn 3 new brains each with a focused task.',
+    description: 'Spawn multiple user-created bots in one call — use when decomposing a complex request into parallel subtasks. Each `name` MUST be a bot the user created in the Bots tab — do NOT invent names. Any name that isn’t a user-created bot is refused. Each spawned bot auto-runs autonomously and writes a result. Example: for “check inbox, plan event, scan socials”, spawn the user’s bots (e.g. “Inboxer”, “Planner”, “Scout”) — only if the user created them.',
     parameters: {
       type: 'object',
       properties: {
@@ -2241,7 +2262,7 @@ export const TOOL_DEFS: ToolDef[] = [
           items: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Creative memorable name — "Inboxer", "Fred", "Scout", "Scribe", "Atlas"' },
+              name: { type: 'string', description: 'Name of a bot the USER created in the Bots tab (must match exactly). Otto cannot invent names — if it doesn\'t match a user-created bot, the spawn is refused.' },
               task: { type: 'string', description: 'Focused, specific task for this worker. Be detailed — this is the worker\'s full instruction.' },
               kind: { type: 'string', description: 'worker|custom', default: 'worker' },
             },

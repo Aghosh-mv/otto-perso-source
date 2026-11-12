@@ -12,7 +12,9 @@
     "react": "18.3.1",
     "react-native": "0.76.3",
     "react-native-webview": "^13.12.5",
-    "nodejs-mobile-react-native": "^0.5.0"
+    "nodejs-mobile-react-native": "^0.5.0",
+    "@react-native-voice/voice": "^3.2.4",
+    "react-native-tts": "^4.1.1"
   },
   "devDependencies": {
     "@react-native/typescript-config": "^0.76.0",
