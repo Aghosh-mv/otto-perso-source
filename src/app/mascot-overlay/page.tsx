@@ -72,7 +72,18 @@ export default function MascotOverlayPage() {
         cursor: 'grab',
       } as React.CSSProperties}
     >
-      {peek && <OttoMascot skin={cfg.skin} accessories={cfg.accessories} mood={cfg.mood} size={260} />}
+      {peek && (
+        <OttoMascot
+          preset={cfg.preset}
+          skin={cfg.skin}
+          eyeColor={cfg.eyeColor}
+          expressiveness={cfg.expressiveness}
+          accessories={cfg.accessories}
+          mood={cfg.mood}
+          size={Math.min(cfg.size || 260, 320)}
+          float
+        />
+      )}
     </main>
   )
 }
