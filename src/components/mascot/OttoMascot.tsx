@@ -82,10 +82,12 @@ function bodyShape(preset: string, skinStars?: boolean) {
         <circle cx="60" cy="150" r="4.5" fill="#1a1030"/><circle cx="180" cy="150" r="4.5" fill="#1a1030"/>
         <rect x="72" y="136" width="96" height="58" rx="14" fill="#0b1027" opacity=".5"/>
         ${starsSvg}`
-    case 'dart':
+    case 'dart': {
+      const dartCatch = '<ellipse cx="136" cy="92" rx="14" ry="10" fill="#fff" opacity=".32" filter="url(#soft)"/><ellipse cx="141" cy="87" r="5" fill="#fff" opacity=".55"/>'
       return `
         <path d="M114 56 L114 206 L137 182 L157 234 L175 226 L155 176 L191 171 Z" ${g} stroke="#1a1030" stroke-width="2.5" stroke-linejoin="round"/>
-        ${catchlight}${rim}`
+        ${dartCatch}${rim}`
+    }
     case 'wisp':
       return `
         <path d="M60 166 a60 60 0 1 1 120 0 L180 234 Q168 252 156 235 Q144 252 132 235 Q120 252 108 235 Q96 252 84 235 Q72 252 60 235 Z" ${g}/>
