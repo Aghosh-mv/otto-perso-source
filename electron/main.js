@@ -3,13 +3,14 @@
 // No localhost visible. No terminal. No Node.js install needed.
 // Double-click → server starts internally → native window opens → Otto is there.
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
 let mainWindow = null;
+let mascotWindow = null;
 let serverProcess = null;
 const PORT = 3000;
 
@@ -114,14 +115,69 @@ function createWindow() {
   });
 }
 
+// ─── Lok mascot overlay ────────────────────────────────────────────────────
+// A transparent, frameless, always-on-top, movable window that floats the
+// mascot on top of everything on screen. Drag it anywhere. The overlay page
+// (/mascot-overlay) reads its config + mood from localStorage, so the main app
+// can pop Lok in with an emote by setting `otto.mascot.mood` in localStorage.
+function createMascotOverlay() {
+  mascotWindow = new BrowserWindow({
+    width: 260,
+    height: 340,
+    x: 80,
+    y: 80,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    focusable: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  mascotWindow.setAlwaysOnTop(true, 'floating');
+  mascotWindow.loadURL(`http://127.0.0.1:${PORT}/mascot-overlay`);
+  mascotWindow.on('closed', () => { mascotWindow = null; });
+  // Click-through on transparent pixels (Electron >=20). Falls back gracefully
+  // on older builds — the mascot stays draggable.
+  try { mascotWindow.setIgnoreMouseEvents(false, { forward: true }); } catch {}
+}
+
+// IPC — the renderer can ask to show/hide/set-mood on the overlay.
+ipcMain.on('mascot:show', () => { if (mascotWindow) mascotWindow.show(); else createMascotOverlay(); });
+ipcMain.on('mascot:hide', () => { if (mascotWindow) mascotWindow.hide(); });
+ipcMain.on('mascot:toggle', () => {
+  if (!mascotWindow) { createMascotOverlay(); return; }
+  mascotWindow.isVisible() ? mascotWindow.hide() : mascotWindow.show();
+});
+ipcMain.on('mascot:mood', (_e, mood) => {
+  if (!mascotWindow) createMascotOverlay();
+  if (mascotWindow) {
+    mascotWindow.show();
+    mascotWindow.webContents.executeJavaScript(
+      `localStorage.setItem('otto.mascot.mood', ${JSON.stringify(String(mood))})`
+    );
+    setTimeout(() => {
+      mascotWindow && mascotWindow.webContents.executeJavaScript(
+        `localStorage.removeItem('otto.mascot.mood')`
+      );
+    }, 4000);
+  }
+});
+
 app.whenReady().then(() => {
   startServer();
   waitForServer((ready) => {
     if (ready) {
       createWindow();
+      createMascotOverlay();
     } else {
       // Create window anyway — user will see an error page
       createWindow();
+      createMascotOverlay();
     }
   });
   app.on('activate', () => {
