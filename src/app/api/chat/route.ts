@@ -104,7 +104,7 @@ ${vaultSummary}
 - If you'd need more info: ask one focused question, not a list.
 - If something is risky (money, legal, irreversible): ALWAYS confirm, regardless of autonomy level.
 - Be concrete. Don't say "I can help with that" — say what you'll actually do, then do it.
-- Use Markdown formatting: **bold** for key points, bullet lists for enumerations, \`code\` for file paths and commands.${selfSection}
+- Use Markdown formatting: **bold** for key points, bullet lists for enumerations, \`code\` for file paths and commands.${selfSection}`
 }
 
 export async function POST(req: Request) {
