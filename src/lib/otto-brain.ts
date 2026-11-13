@@ -6,6 +6,7 @@ import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
 import { db } from '@/lib/db'
 import { executeTool, functionDeclarations, type ToolCall, type ToolResult } from '@/lib/otto-tools'
 import { loadBrainConfig } from '@/lib/brain-config'
+import { zegrateComplete } from '@/lib/zegrate-gateway'
 
 const BUNDLED_API_KEY = process.env.GEMINI_API_KEY
 const BUNDLED_MODEL = process.env.OTTO_MODEL || 'gemini-3.5-flash-lite'
@@ -249,7 +250,8 @@ async function streamGeminiWithTools(opts: ChatOptions): Promise<ChatResult> {
   const allToolCalls: ToolCall[] = []
   const allToolResults: ToolResult[] = []
 
-  // ─── Function-calling loop ─────────────────────────────────────────────
+  // ─── Function-calling loop (Gemini primary; falls back to Zegrate on failure) ──
+  try {
   for (let round = 0; round < maxRounds; round++) {
     const result = await model.generateContentStream({ contents: gContents })
 
@@ -357,6 +359,23 @@ async function streamGeminiWithTools(opts: ChatOptions): Promise<ChatResult> {
     gContents.push({ role: 'user', parts: responseParts })
     // Loop continues — model will see the tool results and either call more
     // tools or produce a final answer
+  }
+  } catch (geminiErr: any) {
+    // Gemini is down / quota / region — fall back to the Zegrate gateway.
+    opts.onThought?.(`\n⚠️ Gemini failed (${String(geminiErr?.message || geminiErr).slice(0, 120)}). Falling back to Zegrate AI…\n`)
+    try {
+      const fb = await zegrateComplete({ systemPrompt: opts.systemPrompt, history: opts.history, userMessage: opts.userMessage })
+      return {
+        content: fb,
+        thoughts: '',
+        promptTokens: 0, completionTokens: 0, totalTokens: 0,
+        model: 'zegrate-ai (fallback)',
+        toolCalls: [], toolResults: [],
+      }
+    } catch (zErr: any) {
+      // Both brains failed — surface the original Gemini error.
+      throw new Error(`Both brains failed. Gemini: ${geminiErr?.message || geminiErr} | Zegrate: ${zErr?.message || zErr}`)
+    }
   }
 
   const totalTokens = promptTokens + completionTokens
