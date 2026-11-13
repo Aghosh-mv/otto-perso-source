@@ -7,6 +7,7 @@ import { db } from '@/lib/db'
 import { executeTool, functionDeclarations, type ToolCall, type ToolResult } from '@/lib/otto-tools'
 import { loadBrainConfig } from '@/lib/brain-config'
 import { zegrateChatWithTools } from '@/lib/zegrate-gateway'
+import { fallbackChain } from '@/lib/model-chain'
 
 const BUNDLED_API_KEY = process.env.GEMINI_API_KEY
 const BUNDLED_MODEL = process.env.OTTO_MODEL || 'gemini-3.5-flash-lite'
@@ -361,29 +362,28 @@ async function streamGeminiWithTools(opts: ChatOptions): Promise<ChatResult> {
     // tools or produce a final answer
   }
   } catch (geminiErr: any) {
-    // Gemini is down / quota / region — fall back to the Zegrate gateway.
-    opts.onThought?.(`\n⚠️ Gemini failed (${String(geminiErr?.message || geminiErr).slice(0, 120)}). Falling back to Zegrate AI (your persona, with tools)…\n`)
+    // Gemini is down / quota / region — try the HF fallback chain.
+    opts.onThought?.(`\n⚠️ Gemini failed (${String(geminiErr?.message || geminiErr).slice(0, 120)}). Trying fallback models (all share Otto's identity + tools)…\n`)
     try {
-      const fb = await zegrateChatWithTools({
+      const fb = await fallbackChain({
         systemPrompt: opts.systemPrompt,
         history: opts.history,
         userMessage: opts.userMessage,
         onToolCall: opts.onToolCall,
         onToolResult: opts.onToolResult,
         onThought: opts.onThought,
-        maxRounds: maxRounds,
+        maxRounds,
       })
       return {
         content: fb.content,
         thoughts: '',
         promptTokens: 0, completionTokens: 0, totalTokens: 0,
-        model: 'zegrate-ai (fallback)',
+        model: `${fb.label} (fallback)`,
         toolCalls: fb.toolCalls,
         toolResults: fb.toolResults,
       }
     } catch (zErr: any) {
-      // Both brains failed — surface the original Gemini error.
-      throw new Error(`Both brains failed. Gemini: ${geminiErr?.message || geminiErr} | Zegrate: ${zErr?.message || zErr}`)
+      throw new Error(`All brains failed. Gemini: ${geminiErr?.message || geminiErr} | Chain: ${zErr?.message || zErr}`)
     }
   }
 

@@ -5,7 +5,7 @@
 // zegrateChatWithTools does a full OpenAI-style function-calling loop: passes
 // Otto's tool declarations to the model, executes any tool_calls via executeTool,
 // feeds results back, and loops until a final text answer. So Zegrate (your
-// beloved persona) keeps full tool access when it takes over from Gemini — it's
+// fallback model) keeps full tool access when it takes over from Gemini — it's
 // not degraded to text-only.
 //
 // If the model doesn't emit tool_calls (or the endpoint rejects tools), it
