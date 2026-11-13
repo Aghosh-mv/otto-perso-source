@@ -21,6 +21,7 @@ import { TimelineView } from '@/components/views/timeline-view'
 import { AnalyticsView } from '@/components/views/analytics-view'
 import { SettingsView } from '@/components/views/settings-view'
 import { WardrobeView } from '@/components/views/wardrobe-view'
+import { DriveView } from '@/components/views/drive-view'
 import { VoiceCall } from '@/components/voice/voice-call'
 import { DevPanels } from '@/components/panels/dev-panels'
 import { SyncBadge } from '@/components/panels/sync-badge'
@@ -129,6 +130,7 @@ export default function Home() {
               {view === 'analytics' && <AnalyticsView />}
               {view === 'settings' && <SettingsView />}
               {view === 'wardrobe' && <WardrobeView />}
+              {view === 'drive' && <DriveView />}
             </div>
           </main>
           <Footer />

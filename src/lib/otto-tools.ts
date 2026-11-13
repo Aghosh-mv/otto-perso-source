@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { syncVaultFromDisk } from '@/lib/vault-sync'
 import { promises as fs } from 'fs'
 import path from 'path'
+import { randomUUID } from 'crypto'
 
 const VAULT_ROOT = process.env.OTTO_VAULT_ROOT || '/home/z/otto-vault'
 
@@ -2162,6 +2163,41 @@ async function toolMapsDirections(args: { from: string; to: string; mode?: strin
 }
 
 // ─── Catalog exported to the model ─────────────────────────────────────────
+// ─── Otto Drive (personal mini-cloud files) ────────────────────────────────
+async function toolDriveList(args: { limit?: number }) {
+  const files = await db.driveFile.findMany({ orderBy: { createdAt: 'desc' }, take: args.limit || 25 })
+  return {
+    name: 'drive_list',
+    ok: true,
+    summary: `${files.length} file${files.length === 1 ? '' : 's'} in Otto Drive.`,
+    data: { files: files.map((f) => ({ id: f.id, name: f.name, mime: f.mime, size: f.size, createdAt: f.createdAt, downloadUrl: `/api/drive/${f.id}` })) },
+  }
+}
+
+async function toolDriveSave(args: { name: string; content: string; mime?: string }) {
+  try {
+    const id = randomUUID()
+    const dir = process.env.OTTO_DRIVE_DIR || path.join(process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace', 'drive')
+    await fs.mkdir(dir, { recursive: true })
+    const safe = args.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'file'
+    const diskPath = path.join(dir, `${id}-${safe}`)
+    await fs.writeFile(diskPath, args.content, 'utf-8')
+    const size = Buffer.byteLength(args.content)
+    const rec = await db.driveFile.create({
+      data: { id, name: args.name, mime: args.mime || 'text/plain', size, path: diskPath, uploadedBy: 'otto' },
+    })
+    return {
+      name: 'drive_save',
+      ok: true,
+      summary: `Saved "${args.name}" (${size} bytes) to Otto Drive — downloadable from any device on the account at /api/drive/${rec.id}.`,
+      data: { id: rec.id, name: rec.name, size, downloadUrl: `/api/drive/${rec.id}` },
+      activity: { action: 'drive.save', target: rec.id, summary: `Otto saved "${args.name}" to Drive.`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'drive_save', ok: false, summary: `Drive save failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'vault_read',
@@ -2434,6 +2470,24 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         path: { type: 'string', description: 'Relative path within the workspace, e.g. "" for root, "reports/" for a subdir', default: '' },
       },
+    },
+  },
+  {
+    name: 'drive_list',
+    description: 'List files in Otto Drive — the user\'s personal mini-cloud (files stored on the backend, accessible from any device on the account). Use when the user asks what files are in their drive / cloud.',
+    parameters: { type: 'object', properties: { limit: { type: 'number', description: 'Max results (default 25)', default: 25 } } },
+  },
+  {
+    name: 'drive_save',
+    description: 'Save text content as a file in Otto Drive (the user\'s mini-cloud). The file is stored on the backend and downloadable from any device on the account. Use when Otto produces a draft/report/note the user should keep cross-device.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'File name, e.g. "q4-report.md"' },
+        content: { type: 'string', description: 'The file contents (text)' },
+        mime: { type: 'string', description: 'Optional MIME type, e.g. text/markdown', default: 'text/plain' },
+      },
+      required: ['name', 'content'],
     },
   },
   {
@@ -2734,6 +2788,8 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'email_status': return await toolEmailStatus()
       case 'email_send': return await toolEmailSend(a as any)
       case 'file_list': return await toolFileList(a as any)
+      case 'drive_list': return await toolDriveList(a as any)
+      case 'drive_save': return await toolDriveSave(a as any)
       case 'file_read': return await toolFileRead(a as any)
       case 'file_write': return await toolFileWrite(a as any)
       case 'hotel_search': return await toolHotelSearch(a as any)

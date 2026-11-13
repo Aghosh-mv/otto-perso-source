@@ -305,3 +305,18 @@ model Device {
   @@index([isActive])
   @@index([lastSeenAt])
 }
+
+// ─── Otto Drive (personal mini-cloud files) ────────────────────────────────
+// User-uploaded files stored on the backend, accessible from any device on the
+// account. Metadata in the DB, bytes on disk under OTTO_DRIVE_DIR.
+model DriveFile {
+  id          String   @id @default(cuid())
+  name        String   // display name
+  mime        String   @default("application/octet-stream")
+  size        Int      @default(0)  // bytes
+  path        String   // absolute path on disk
+  uploadedBy  String   @default("") // device name that uploaded it
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}

@@ -18,6 +18,7 @@ import {
   BarChart3,
   Settings,
   Sparkles,
+  Cloud,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { key: 'agents', label: 'Agents', icon: Network, group: 'work' },
   { key: 'bots', label: 'Bots', icon: Bot, group: 'work' },
   { key: 'vault', label: 'Vault', icon: BookMarked, group: 'work' },
+  { key: 'drive', label: 'Drive', icon: Cloud, group: 'work' },
   { key: 'recipes', label: 'Recipes', icon: ChefHat, group: 'work' },
   { key: 'timeline', label: 'Timeline', icon: Activity, group: 'system' },
   { key: 'analytics', label: 'Analytics', icon: BarChart3, group: 'system' },

@@ -17,6 +17,7 @@ export type ViewKey =
   | 'analytics'
   | 'settings'
   | 'wardrobe'
+  | 'drive'
 
 interface OttoState {
   view: ViewKey
