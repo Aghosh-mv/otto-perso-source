@@ -8,6 +8,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { loadBrainConfig } from '@/lib/brain-config'
+import vm from 'vm'
 
 const VAULT_ROOT = process.env.OTTO_VAULT_ROOT || '/home/z/otto-vault'
 
@@ -2278,6 +2279,131 @@ async function toolImageAnalyze(args: { driveFileId?: string; imageUrl?: string;
   }
 }
 
+// ─── Code Interpreter (run code on data) ───────────────────────────────────
+// Fills the ChatGPT Code-Interpreter gap. JS runs in a Node `vm` sandbox (no
+// require/fs/process — computation only); Python runs via `python3` child
+// process with a timeout + sandboxed cwd + stripped env. Self-hosted personal
+// security stance: fine for the user's own code; not a hardened multi-tenant
+// sandbox. Otto composes code that embeds the data and runs it.
+async function toolCodeRun(args: { language: 'javascript' | 'python'; code: string }) {
+  const lang = (args.language || 'javascript').toLowerCase()
+  if (lang === 'python') {
+    const { execFile } = await import('child_process')
+    return new Promise((resolve) => {
+      execFile(
+        'python3', ['-c', args.code],
+        { timeout: 15_000, maxBuffer: 2_000_000, cwd: process.env.OTTO_WORKSPACE_ROOT || '/tmp', env: { PATH: process.env.PATH || '', HOME: process.env.HOME || '' } },
+        (err: any, stdout: string, stderr: string) => {
+          if (err && !stdout) {
+            resolve({ name: 'code_run', ok: false, summary: `Python exited ${err.code || 'error'}: ${(stderr || err.message).slice(0, 200)}`, data: { language: 'python', stderr: stderr || err.message, stdout } })
+          } else {
+            resolve({ name: 'code_run', ok: true, summary: `Ran Python — output below.`, data: { language: 'python', stdout, stderr: stderr || '' } })
+          }
+        },
+      )
+    })
+  }
+  // JavaScript via vm sandbox
+  const logs: string[] = []
+  const sandbox: any = {
+    console: { log: (...a: any[]) => logs.push(a.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ')) },
+    Math, JSON, Date, parseInt, parseFloat, isNaN, isFinite, String, Number, Boolean, Array, Object, RegExp, Error,
+    result: undefined,
+  }
+  try {
+    const ctx = vm.createContext(sandbox)
+    vm.runInContext(args.code + '\n;', ctx, { timeout: 10_000, filename: 'otto-sandbox.js' })
+    let result: any = sandbox.result
+    if (result === undefined && logs.length === 0) result = '(no output — set `result` or use console.log)'
+    const out = result !== undefined ? (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) : ''
+    return {
+      name: 'code_run',
+      ok: true,
+      summary: `Ran JavaScript — ${logs.length} log line(s)${result !== undefined ? ' + result' : ''}.`,
+      data: { language: 'javascript', stdout: logs.join('\n'), result: out },
+    }
+  } catch (e) {
+    return { name: 'code_run', ok: false, summary: `JavaScript error: ${(e as Error).message}`, data: { language: 'javascript', stderr: (e as Error).message, stdout: logs.join('\n') } }
+  }
+}
+
+// ─── Computer Use (web browser automation via Playwright) ──────────────────
+// Fills the Claude Computer-Use gap (web). Otto drives a headless Chromium:
+// navigate, click, type, extract text, screenshot (saved to Drive), eval.
+// Playwright is an OPTIONAL dep — dynamically imported. If not installed, the
+// tool returns clear install instructions. Install: npm i playwright && npx
+// playwright install chromium.
+let _browserPage: any = null
+async function getBrowserPage(): Promise<any> {
+  if (_browserPage) return _browserPage
+  const { chromium } = await import('playwright')
+  const browser = await chromium.launch({ headless: true })
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  _browserPage = await ctx.newPage()
+  return _browserPage
+}
+
+async function toolBrowserUse(args: { action: string; url?: string; selector?: string; text?: string; js?: string }) {
+  let page: any
+  try {
+    page = await getBrowserPage()
+  } catch (e: any) {
+    return {
+      name: 'browser_use',
+      ok: false,
+      summary: `Browser automation unavailable: ${e?.message || 'playwright not installed'}. Install it: npm i playwright && npx playwright install chromium`,
+      data: { error: e?.message || 'playwright missing' },
+    }
+  }
+  try {
+    switch ((args.action || '').toLowerCase()) {
+      case 'navigate':
+        if (!args.url) return { name: 'browser_use', ok: false, summary: 'navigate needs a url.', data: { error: 'no url' } }
+        await page.goto(args.url, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+        return { name: 'browser_use', ok: true, summary: `Navigated to ${args.url}.`, data: { url: args.url, title: await page.title() } }
+      case 'click':
+        if (!args.selector) return { name: 'browser_use', ok: false, summary: 'click needs a selector.', data: { error: 'no selector' } }
+        await page.click(args.selector, { timeout: 10_000 })
+        return { name: 'browser_use', ok: true, summary: `Clicked ${args.selector}.`, data: { selector: args.selector } }
+      case 'type':
+        if (!args.selector || args.text === undefined) return { name: 'browser_use', ok: false, summary: 'type needs selector + text.', data: { error: 'missing' } }
+        await page.fill(args.selector, args.text, { timeout: 10_000 })
+        return { name: 'browser_use', ok: true, summary: `Typed into ${args.selector}.`, data: { selector: args.selector, chars: args.text.length } }
+      case 'press':
+        if (!args.text) return { name: 'browser_use', ok: false, summary: 'press needs a key name in text.', data: { error: 'missing' } }
+        await page.keyboard.press(args.text)
+        return { name: 'browser_use', ok: true, summary: `Pressed ${args.text}.`, data: { key: args.text } }
+      case 'extract':
+        const text = await page.innerText(args.selector || 'body')
+        return { name: 'browser_use', ok: true, summary: `Extracted ${text.length} chars.`, data: { text: text.slice(0, 8000), selector: args.selector || 'body' } }
+      case 'title':
+        return { name: 'browser_use', ok: true, summary: `Page title: ${await page.title()}`, data: { title: await page.title(), url: page.url() } }
+      case 'screenshot': {
+        const buf: Buffer = await page.screenshot({ fullPage: false })
+        const id = randomUUID()
+        const dir = process.env.OTTO_DRIVE_DIR || path.join(process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace', 'drive')
+        await fs.mkdir(dir, { recursive: true })
+        const diskPath = path.join(dir, `${id}-screenshot.png`)
+        await fs.writeFile(diskPath, buf)
+        const rec = await db.driveFile.create({ data: { id, name: `screenshot-${Date.now()}.png`, mime: 'image/png', size: buf.length, path: diskPath, uploadedBy: 'otto' } })
+        return { name: 'browser_use', ok: true, summary: `Screenshot saved to Drive.`, data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}` }, activity: { action: 'browser.screenshot', target: rec.id, summary: `Otto took a browser screenshot.`, riskTier: 'low' as const } }
+      }
+      case 'eval':
+        if (!args.js) return { name: 'browser_use', ok: false, summary: 'eval needs js.', data: { error: 'no js' } }
+        const r = await page.evaluate(args.js)
+        return { name: 'browser_use', ok: true, summary: `Evaluated JS in the page.`, data: { result: typeof r === 'object' ? JSON.stringify(r) : String(r) } }
+      case 'close':
+        try { await page.context().browser()?.close() } catch {}
+        _browserPage = null
+        return { name: 'browser_use', ok: true, summary: `Browser closed.`, data: {} }
+      default:
+        return { name: 'browser_use', ok: false, summary: `Unknown action "${args.action}". Use: navigate|click|type|press|extract|title|screenshot|eval|close.`, data: { error: 'unknown action' } }
+    }
+  } catch (e) {
+    return { name: 'browser_use', ok: false, summary: `Browser action failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'vault_read',
@@ -2595,6 +2721,33 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'code_run',
+    description: 'Run code to compute/transform data (Code-Interpreter-style). JavaScript runs in a sandboxed vm (no fs/require/process — math, JSON, arrays, etc.); Python runs via python3 if installed. Use for: analyze a dataset, crunch numbers, transform JSON/CSV, compute a formula, generate a table, verify math. Embed the data in the code you write. Set `result` or console.log to return output.',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: { type: 'string', enum: ['javascript', 'python'], description: 'javascript (sandboxed vm, always available) or python (needs python3 on the host)', default: 'javascript' },
+        code: { type: 'string', description: 'The code to run. For JS, set `result = ...` or console.log(). For Python, print() output is captured.' },
+      },
+      required: ['language', 'code'],
+    },
+  },
+  {
+    name: 'browser_use',
+    description: "Computer Use for the web — drive a headless Chromium to navigate, click, type, extract text, screenshot, or eval JS on live pages. Actions: navigate(url), click(selector), type(selector,text), press(key), extract([selector]) -> text, title, screenshot (saved to Drive), eval(js), close. Use for: fill a form on a site that has no API, scrape a dynamic page, take a screenshot of a page, log in somewhere (with user consent). Requires Playwright installed on the host (npm i playwright && npx playwright install chromium) — the tool returns install instructions if missing.",
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['navigate', 'click', 'type', 'press', 'extract', 'title', 'screenshot', 'eval', 'close'], description: 'What to do' },
+        url: { type: 'string', description: 'URL (for navigate)' },
+        selector: { type: 'string', description: 'CSS selector (for click/type/extract)' },
+        text: { type: 'string', description: 'Text to type, or key to press (e.g. "Enter")' },
+        js: { type: 'string', description: 'JS to evaluate in the page (for eval)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'file_read',
     description: 'Read the contents of a file from Otto\'s sandboxed workspace. Returns up to 12000 chars (truncated if longer). Path is relative to /home/z/otto-workspace/.',
     parameters: {
@@ -2896,6 +3049,8 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'drive_save': return await toolDriveSave(a as any)
       case 'image_generate': return await toolImageGenerate(a as any)
       case 'image_analyze': return await toolImageAnalyze(a as any)
+      case 'code_run': return await toolCodeRun(a as any)
+      case 'browser_use': return await toolBrowserUse(a as any)
       case 'file_read': return await toolFileRead(a as any)
       case 'file_write': return await toolFileWrite(a as any)
       case 'hotel_search': return await toolHotelSearch(a as any)
