@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!rec) return NextResponse.json({ error: 'not found' }, { status: 404 })
   let buf: Buffer
   try { buf = await fs.readFile(rec.path) } catch { return NextResponse.json({ error: 'file missing on disk' }, { status: 410 }) }
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf), {
     headers: {
       'Content-Type': rec.mime,
       'Content-Disposition': `attachment; filename="${rec.name.replace(/"/g, '')}"`,
