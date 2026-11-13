@@ -19,6 +19,7 @@ import {
   Settings,
   Sparkles,
   Cloud,
+  Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -38,6 +39,7 @@ const NAV: NavItem[] = [
   { key: 'bots', label: 'Bots', icon: Bot, group: 'work' },
   { key: 'vault', label: 'Vault', icon: BookMarked, group: 'work' },
   { key: 'drive', label: 'Drive', icon: Cloud, group: 'work' },
+  { key: 'schedules', label: 'Always-on', icon: Clock, group: 'work' },
   { key: 'recipes', label: 'Recipes', icon: ChefHat, group: 'work' },
   { key: 'timeline', label: 'Timeline', icon: Activity, group: 'system' },
   { key: 'analytics', label: 'Analytics', icon: BarChart3, group: 'system' },

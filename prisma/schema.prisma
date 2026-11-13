@@ -320,3 +320,22 @@ model DriveFile {
 
   @@index([createdAt])
 }
+
+// ─── Always-on scheduled agents (cloud-side, runs without the user's device) ─
+// The Otto backend ticks every minute and runs due jobs — agents that wake on
+// a schedule and do work on the SERVER, even when every user device is off.
+model ScheduledJob {
+  id              String    @id @default(cuid())
+  name            String
+  botName         String    // user-created bot that runs each tick
+  prompt          String    // what it does each run
+  intervalMinutes Int       @default(60)
+  nextRunAt       DateTime  @default(now())
+  lastRunAt       DateTime?
+  lastResult      String    @default("")
+  enabled         Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  @@index([enabled])
+  @@index([nextRunAt])
+}
