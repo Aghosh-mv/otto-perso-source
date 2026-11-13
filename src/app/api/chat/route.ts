@@ -21,8 +21,9 @@ function buildSystemPrompt(opts: {
   activeAgents: { name: string; kind: string; status: string; task: string | null }[]
   pendingTasks: { title: string; status: string; priority: string }[]
   userName?: string
+  selfModel?: string
 }): string {
-  const { autonomyLevel, vaultNotes, activeAgents, pendingTasks, userName } = opts
+  const { autonomyLevel, vaultNotes, activeAgents, pendingTasks, userName, selfModel } = opts
 
   const vaultSummary = vaultNotes.length > 0
     ? vaultNotes.map((n) => `- [${n.category}] ${n.title}: ${n.body.slice(0, 120)}${n.body.length > 120 ? '…' : ''}`).join('\n')
@@ -35,6 +36,10 @@ function buildSystemPrompt(opts: {
   const tasksSummary = pendingTasks.length > 0
     ? pendingTasks.map((t) => `- [${t.priority}] ${t.title} (${t.status})`).join('\n')
     : '(no pending tasks)'
+
+  const selfSection = selfModel && selfModel.trim()
+    ? `\n\n## The user's self-model (you can act AS them)\nWhen asked to draft, reply, or decide in the user's voice — match this profile exactly:\n${selfModel.trim()}\n`
+    : ''
 
   return `You are Otto Perso — a digital employee that lives on the user's computer. You are NOT a chatbot. You are an autonomous orchestrator with a full brain — you can read files, browse the web, draft and send emails, manage schedules, spawn new Otto brains for parallel work, and operate the user's computer like a human would.
 
@@ -99,7 +104,7 @@ ${vaultSummary}
 - If you'd need more info: ask one focused question, not a list.
 - If something is risky (money, legal, irreversible): ALWAYS confirm, regardless of autonomy level.
 - Be concrete. Don't say "I can help with that" — say what you'll actually do, then do it.
-- Use Markdown formatting: **bold** for key points, bullet lists for enumerations, \`code\` for file paths and commands.`
+- Use Markdown formatting: **bold** for key points, bullet lists for enumerations, \`code\` for file paths and commands.${selfSection}
 }
 
 export async function POST(req: Request) {
@@ -132,13 +137,14 @@ export async function POST(req: Request) {
   }
 
   // ─── Load context ────────────────────────────────────────────────────────
-  const [vaultNotes, activeAgents, pendingTasks] = await Promise.all([
+  const [vaultNotes, activeAgents, pendingTasks, selfRow] = await Promise.all([
     db.vaultNote.findMany({ take: 20, orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }] }),
     db.agent.findMany(),
     db.task.findMany({
       where: { status: { in: ['queued', 'executing', 'planning', 'blocked', 'waiting_approval'] } },
       take: 10,
     }),
+    db.systemState.findUnique({ where: { key: 'self_model' } }).catch(() => null),
   ])
 
   const systemPrompt = buildSystemPrompt({
@@ -147,6 +153,7 @@ export async function POST(req: Request) {
     activeAgents: activeAgents.map((a) => ({ name: a.name, kind: a.kind, status: a.status, task: a.task })),
     pendingTasks: pendingTasks.map((t) => ({ title: t.title, status: t.status, priority: t.priority })),
     userName: session.user.name || undefined,
+    selfModel: selfRow?.value || undefined,
   })
 
   // Build history (exclude the last user message — we pass it separately)

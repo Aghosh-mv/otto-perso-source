@@ -343,6 +343,7 @@ export function ChatView() {
     setSending(true)
     setLiveThoughts('')
     setLiveTokens('')
+    try { localStorage.setItem('otto.mascot.mood', 'think') } catch {} // Lok mirrors Otto thinking
 
     // Optimistic: append user message and a streaming placeholder
     const userMsg: Message = {
@@ -508,6 +509,7 @@ export function ChatView() {
     } finally {
       setSending(false)
       setStreamingId(null)
+      try { localStorage.setItem('otto.mascot.mood', 'happy'); setTimeout(() => { try { localStorage.setItem('otto.mascot.mood', 'content') } catch {} }, 6000) } catch {} // Lok happy on done, then relax
       // Refresh the conversation to get the persisted final state
       if (currentId) {
         fetch(`/api/conversations/${currentId}`).then((r) => r.json()).then((data) => data && setConvo(data)).catch(() => {})
