@@ -7,6 +7,7 @@ import { syncVaultFromDisk } from '@/lib/vault-sync'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
+import { loadBrainConfig } from '@/lib/brain-config'
 
 const VAULT_ROOT = process.env.OTTO_VAULT_ROOT || '/home/z/otto-vault'
 
@@ -2198,6 +2199,85 @@ async function toolDriveSave(args: { name: string; content: string; mime?: strin
   }
 }
 
+// ─── Image generation (Gemini → Otto Drive) ────────────────────────────────
+// Fills the DALL·E / album-art / design / tattoo-concept gap. Uses the same
+// Gemini key Otto already has; the generated image lands in Otto Drive so it's
+// on the user's mini-cloud, downloadable from any device.
+async function toolImageGenerate(args: { prompt: string }) {
+  try {
+    const key = (await loadBrainConfig()).apiKey
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${key}`
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: args.prompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }),
+      signal: AbortSignal.timeout(60_000),
+    })
+    const data: any = await res.json()
+    const part = data?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data)
+    if (!part) return { name: 'image_generate', ok: false, summary: `Image generation failed: ${data?.error?.message || 'no image returned'}`, data: { error: data?.error?.message || 'no image' } }
+    const b64 = part.inlineData.data as string
+    const mime = (part.inlineData.mimeType as string) || 'image/png'
+    const buf = Buffer.from(b64, 'base64')
+    const id = randomUUID()
+    const dir = process.env.OTTO_DRIVE_DIR || path.join(process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace', 'drive')
+    await fs.mkdir(dir, { recursive: true })
+    const safe = (args.prompt.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40) || 'image')
+    const ext = (mime.split('/')[1] || 'png').split(';')[0]
+    const diskPath = path.join(dir, `${id}-${safe}.${ext}`)
+    await fs.writeFile(diskPath, buf)
+    const rec = await db.driveFile.create({ data: { id, name: `${safe}.${ext}`, mime, size: buf.length, path: diskPath, uploadedBy: 'otto' } })
+    return {
+      name: 'image_generate',
+      ok: true,
+      summary: `Generated an image for "${args.prompt}" and saved it to Otto Drive.`,
+      data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}`, prompt: args.prompt, mime, size: buf.length },
+      activity: { action: 'image.generate', target: rec.id, summary: `Otto generated an image for "${args.prompt.slice(0, 60)}".`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'image_generate', ok: false, summary: `Image generation failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Image analysis / vision (Gemini multimodal) ───────────────────────────
+// Fills the vision gap — plant ID, recipe-from-photo, screenshot analysis,
+// "describe this image", read a chart, etc. Takes a Drive file id or image URL.
+async function toolImageAnalyze(args: { driveFileId?: string; imageUrl?: string; question: string }) {
+  try {
+    if (!args.driveFileId && !args.imageUrl) {
+      return { name: 'image_analyze', ok: false, summary: 'Need a driveFileId or imageUrl.', data: { error: 'no image source' } }
+    }
+    let buf: Buffer
+    let mime = 'image/png'
+    if (args.driveFileId) {
+      const f = await db.driveFile.findUnique({ where: { id: args.driveFileId } })
+      if (!f) return { name: 'image_analyze', ok: false, summary: 'Drive file not found.', data: { error: 'not found' } }
+      buf = await fs.readFile(f.path)
+      mime = f.mime || mime
+    } else {
+      const r = await fetch(args.imageUrl!, { signal: AbortSignal.timeout(20_000) })
+      buf = Buffer.from(await r.arrayBuffer())
+      mime = r.headers.get('content-type') || mime
+      if (!mime.startsWith('image/')) mime = 'image/png'
+    }
+    const b64 = buf.toString('base64')
+    const key = (await loadBrainConfig()).apiKey
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(key)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const result = await model.generateContent([{ inlineData: { data: b64, mimeType: mime } }, { text: args.question }])
+    const text = result.response.text()
+    return {
+      name: 'image_analyze',
+      ok: true,
+      summary: `Analyzed the image: ${text.slice(0, 120)}${text.length > 120 ? '…' : ''}`,
+      data: { question: args.question, answer: text, source: args.driveFileId ? `drive:${args.driveFileId}` : args.imageUrl },
+      activity: { action: 'image.analyze', target: args.driveFileId || args.imageUrl || '', summary: `Otto analyzed an image: ${args.question.slice(0, 60)}`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'image_analyze', ok: false, summary: `Image analysis failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'vault_read',
@@ -2488,6 +2568,30 @@ export const TOOL_DEFS: ToolDef[] = [
         mime: { type: 'string', description: 'Optional MIME type, e.g. text/markdown', default: 'text/plain' },
       },
       required: ['name', 'content'],
+    },
+  },
+  {
+    name: 'image_generate',
+    description: 'Generate an image from a text prompt using Gemini image generation. The result is saved to Otto Drive (the user\'s mini-cloud) and downloadable from any device. Use for: art, album art, logos, tattoo concepts, illustrations, mood boards, design concepts — any "create a picture of X" request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'What to draw, e.g. "a watercolor of a fox in a misty forest, soft pastels"' },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'image_analyze',
+    description: 'Analyze/understand an image with Gemini vision. Pass a Drive file id or an image URL + a question. Use for: identify a plant from a photo, read a chart/screenshot, suggest a recipe from a fridge photo, describe an image, extract text from a photo, wardrobe suggestions from a photo, etc.',
+    parameters: {
+      type: 'object',
+      properties: {
+        driveFileId: { type: 'string', description: 'ID of a file in Otto Drive (from drive_list)' },
+        imageUrl: { type: 'string', description: 'A public image URL (if no driveFileId)' },
+        question: { type: 'string', description: 'What to ask about the image, e.g. "what plant is this?" or "read the text in this screenshot"' },
+      },
+      required: ['question'],
     },
   },
   {
@@ -2790,6 +2894,8 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'file_list': return await toolFileList(a as any)
       case 'drive_list': return await toolDriveList(a as any)
       case 'drive_save': return await toolDriveSave(a as any)
+      case 'image_generate': return await toolImageGenerate(a as any)
+      case 'image_analyze': return await toolImageAnalyze(a as any)
       case 'file_read': return await toolFileRead(a as any)
       case 'file_write': return await toolFileWrite(a as any)
       case 'hotel_search': return await toolHotelSearch(a as any)
