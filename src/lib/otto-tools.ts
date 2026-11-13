@@ -2528,6 +2528,104 @@ async function toolBrowserUse(args: { action: string; url?: string; selector?: s
   }
 }
 
+// ─── Second Self (A) — Otto models YOU + acts as you ─────────────────────────
+// Otto studies your writing (in its head) and stores a self-model: voice, style,
+// preferences, relationships, routines. self_write stores the profile Otto
+// composes; self_read loads it so Otto drafts/replies in YOUR voice. The chat
+// system prompt also injects the self-model so Otto always "is you" when needed.
+async function toolSelfWrite(args: { profile: string }) {
+  try {
+    await db.systemState.upsert({ where: { key: 'self_model' }, update: { value: args.profile }, create: { key: 'self_model', value: args.profile } })
+    return { name: 'self_write', ok: true, summary: 'Saved your self-model. Otto will now draft + reply as you when asked.', data: { bytes: args.profile.length } }
+  } catch (e) { return { name: 'self_write', ok: false, summary: `Self write failed: ${(e as Error).message}`, data: { error: (e as Error).message } } }
+}
+async function toolSelfRead() {
+  const row = await db.systemState.findUnique({ where: { key: 'self_model' } })
+  return { name: 'self_read', ok: true, summary: row ? 'Loaded your self-model — use it to draft/reply as me.' : 'No self-model yet. Study my writing (vault notes, sent emails, edits) then call self_write with a profile of my voice/style/preferences.', data: { profile: row?.value || '' } }
+}
+
+// ─── Managed Workforce (B) — dispatch your bot team in parallel + aggregate ──
+// Otto decomposes a request into per-bot subtasks, this tool spawns each named
+// user-created bot, runs them in parallel, awaits all, and returns aggregated
+// results. The "AI org you manage" signature — vs a single chat.
+async function toolWorkforceDispatch(args: { request: string; assignments: { botName: string; subtask: string }[] }) {
+  try {
+    const { runAgent } = await import('@/lib/agent-runtime')
+    const bots = await db.customBot.findMany({ where: { isActive: true } })
+    const byName = new Map(bots.map((b) => [b.name, b]))
+    const results: any[] = []
+    const refused: string[] = []
+    await Promise.all(args.assignments.map(async (a) => {
+      const bot = byName.get(a.botName)
+      if (!bot) { refused.push(a.botName); return }
+      const agent = await db.agent.create({ data: { name: bot.name, kind: 'worker', task: a.subtask, modelName: bot.modelName || 'gemini-3.5-flash-lite' } })
+      try {
+        const run = await runAgent(agent.id)
+        results.push({ bot: bot.name, subtask: a.subtask, result: (run.result || '').slice(0, 1000) })
+      } catch (e: any) {
+        results.push({ bot: bot.name, subtask: a.subtask, result: `error: ${e.message}` })
+      }
+    }))
+    return {
+      name: 'workforce_dispatch',
+      ok: results.length > 0,
+      summary: `Dispatched ${results.length} bot${results.length === 1 ? '' : 's'}${refused.length ? `; refused ${refused.length} (not user-created: ${refused.join(', ')})` : ''}; aggregated results below.`,
+      data: { request: args.request, results, refused },
+      activity: { action: 'workforce.dispatch', target: results.map((r) => r.bot).join(','), summary: `Otto dispatched ${results.length} user bots for: ${args.request.slice(0, 80)}`, riskTier: 'medium' as const },
+    }
+  } catch (e) { return { name: 'workforce_dispatch', ok: false, summary: `Workforce dispatch failed: ${(e as Error).message}`, data: { error: (e as Error).message } } }
+}
+
+// ─── Predictive Anticipation (C) — learn routines + propose schedules ───────
+// Scans recent tasks + activity for recurring patterns, returns proposals for
+// always-on scheduled jobs. Otto/user approve → created via /api/schedules.
+async function toolRoutineSuggest() {
+  try {
+    const tasks = await db.task.findMany({ orderBy: { createdAt: 'desc' }, take: 60, select: { title: true, createdAt: true } })
+    const acts = await db.activityLog.findMany({ where: { action: 'chat.response' }, orderBy: { createdAt: 'desc' }, take: 60, select: { summary: true, createdAt: true } })
+    // crude recurrence detection: lowercase keyword frequency over recent items
+    const freq: Record<string, number> = {}
+    const stop = new Set(['the','a','to','of','and','for','my','in','on','at','is','i','you','otto','with','from','that','this','it','as','be','are','was','do','me'])
+    for (const t of [...tasks, ...acts]) {
+      const text = (t as any).title || (t as any).summary || ''
+      for (const w of String(text).toLowerCase().split(/\W+/)) {
+        if (w.length > 3 && !stop.has(w)) freq[w] = (freq[w] || 0) + 1
+      }
+    }
+    const recurring = Object.entries(freq).filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    const proposals = recurring.map(([word, n]) => ({ keyword: word, occurrences: n, suggested: `Schedule a bot to handle "${word}" on a recurring interval (e.g. every 60–1440 min) — it appeared ${n}× recently.` }))
+    return {
+      name: 'routine_suggest',
+      ok: true,
+      summary: proposals.length ? `Found ${proposals.length} recurring pattern(s). Proposing always-on jobs.` : 'No strong recurring patterns yet — keep using Otto and routines will emerge.',
+      data: { proposals, analyzedTasks: tasks.length, analyzedActivity: acts.length },
+    }
+  } catch (e) { return { name: 'routine_suggest', ok: false, summary: `Routine suggest failed: ${(e as Error).message}`, data: { error: (e as Error).message } } }
+}
+
+// ─── Outbound Agent (D) — Otto initiates contact to resolve a task ───────────
+// Otto composes a message and sends it (email or sms) to a company/contact to
+// resolve something on the user's behalf (cancel, dispute, confirm, book).
+// Critical risk → autonomy system gates it. Reuses the configured email/sms.
+async function toolOutboundResolve(args: { channel: 'email' | 'sms'; to: string; subject?: string; message: string; purpose: string }) {
+  try {
+    let sent: any
+    if (args.channel === 'email') {
+      if (!args.subject) return { name: 'outbound_resolve', ok: false, summary: 'Email channel needs a subject.', data: { error: 'no subject' } }
+      sent = await toolEmailSend({ to: args.to, subject: args.subject, body: args.message })
+    } else {
+      sent = await toolSmsSend({ to: args.to, body: args.message.slice(0, 1600) })
+    }
+    return {
+      name: 'outbound_resolve',
+      ok: sent?.ok ?? true,
+      summary: sent?.ok ? `Contacted ${args.to} via ${args.channel} to resolve: ${args.purpose}` : `Outbound resolve failed: ${sent?.summary || 'send error'}`,
+      data: { channel: args.channel, to: args.to, purpose: args.purpose, sendResult: sent },
+      activity: { action: 'outbound.resolve', target: args.to, summary: `Otto contacted ${args.to} (${args.channel}) to resolve: ${args.purpose}`, riskTier: 'critical' as const },
+    }
+  } catch (e) { return { name: 'outbound_resolve', ok: false, summary: `Outbound resolve failed: ${(e as Error).message}`, data: { error: (e as Error).message } } }
+}
+
 export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'vault_read',
@@ -2900,6 +2998,48 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'self_read',
+    description: 'Load the user\'s self-model (their writing voice, style, preferences, relationships, routines) so you can draft / reply / decide AS them. Call this before writing anything in the user\'s voice. If empty, study their vault notes + sent emails first, then call self_write to create the profile.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'self_write',
+    description: 'Save/update the user\'s self-model — a profile of THEIR voice, style, phrasings, tone, preferences, key relationships, and recurring routines. You compose this after studying their writing (vault notes, emails, edits). Once saved, Otto drafts + replies as the user when asked. Keep it concise but specific (signature phrases, tone, do/don\'ts).',
+    parameters: { type: 'object', properties: { profile: { type: 'string', description: 'The self-model profile (voice/style/preferences/relationships/routines)' } }, required: ['profile'] },
+  },
+  {
+    name: 'workforce_dispatch',
+    description: 'Dispatch a TEAM of user-created bots in parallel on one request — the managed-workforce signature. You decompose the request into per-bot subtasks (each botName MUST be a user-created bot), this tool spawns them, runs all in parallel, awaits results, and returns aggregated outputs. Use for complex multi-part requests (e.g. "triage inbox + draft reply + update CRM" → 3 bots).',
+    parameters: {
+      type: 'object',
+      properties: {
+        request: { type: 'string', description: 'The overall request being decomposed' },
+        assignments: { type: 'array', items: { type: 'object', properties: { botName: { type: 'string' }, subtask: { type: 'string' } }, required: ['botName', 'subtask'] }, description: 'Per-bot subtasks. botName must match a user-created bot exactly.' },
+      },
+      required: ['request', 'assignments'],
+    },
+  },
+  {
+    name: 'routine_suggest',
+    description: 'Predictive anticipation: scan the user\'s recent tasks + activity for recurring patterns and propose always-on scheduled jobs (so Otto pre-does routines before being asked). Returns proposals; create the ones the user approves via the schedules API / Always-on tab.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'outbound_resolve',
+    description: 'Outbound agent: Otto INITIATES contact on the user\'s behalf to resolve a task — email or SMS a company/contact to cancel, dispute, confirm, book, follow up. You compose the message; this tool sends it via the configured email/sms provider. CRITICAL risk — only with user approval (autonomy gate).',
+    parameters: {
+      type: 'object',
+      properties: {
+        channel: { type: 'string', enum: ['email', 'sms'], description: 'How to contact them' },
+        to: { type: 'string', description: 'Email address or phone number' },
+        subject: { type: 'string', description: 'Subject (email only)' },
+        message: { type: 'string', description: 'The composed message to send' },
+        purpose: { type: 'string', description: 'What this resolves, e.g. "cancel subscription X"' },
+      },
+      required: ['channel', 'to', 'message', 'purpose'],
+    },
+  },
+  {
     name: 'file_read',
     description: 'Read the contents of a file from Otto\'s sandboxed workspace. Returns up to 12000 chars (truncated if longer). Path is relative to /home/z/otto-workspace/.',
     parameters: {
@@ -3205,6 +3345,11 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'image_analyze': return await toolImageAnalyze(a as any)
       case 'code_run': return await toolCodeRun(a as any)
       case 'browser_use': return await toolBrowserUse(a as any)
+      case 'self_read': return await toolSelfRead()
+      case 'self_write': return await toolSelfWrite(a as any)
+      case 'workforce_dispatch': return await toolWorkforceDispatch(a as any)
+      case 'routine_suggest': return await toolRoutineSuggest()
+      case 'outbound_resolve': return await toolOutboundResolve(a as any)
       case 'file_read': return await toolFileRead(a as any)
       case 'file_write': return await toolFileWrite(a as any)
       case 'hotel_search': return await toolHotelSearch(a as any)
