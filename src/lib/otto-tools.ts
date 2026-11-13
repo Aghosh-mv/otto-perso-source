@@ -2204,21 +2204,45 @@ async function toolDriveSave(args: { name: string; content: string; mime?: strin
 // Fills the DALL·E / album-art / design / tattoo-concept gap. Uses the same
 // Gemini key Otto already has; the generated image lands in Otto Drive so it's
 // on the user's mini-cloud, downloadable from any device.
-async function toolImageGenerate(args: { prompt: string }) {
+// Providers: gemini (default, keyless-via-bundled-key), pollinations (fully
+// keyless, no login), cloudflare (optional CF_ACCOUNT_ID + CF_API_TOKEN).
+async function toolImageGenerate(args: { prompt: string; provider?: 'gemini' | 'pollinations' | 'cloudflare'; width?: number; height?: number }) {
+  const provider = args.provider || 'gemini'
   try {
-    const key = (await loadBrainConfig()).apiKey
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${key}`
-    const res = await fetch(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: args.prompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }),
-      signal: AbortSignal.timeout(60_000),
-    })
-    const data: any = await res.json()
-    const part = data?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data)
-    if (!part) return { name: 'image_generate', ok: false, summary: `Image generation failed: ${data?.error?.message || 'no image returned'}`, data: { error: data?.error?.message || 'no image' } }
-    const b64 = part.inlineData.data as string
-    const mime = (part.inlineData.mimeType as string) || 'image/png'
-    const buf = Buffer.from(b64, 'base64')
+    let buf: Buffer
+    let mime = 'image/png'
+    if (provider === 'pollinations') {
+      const w = args.width || 1024, h = args.height || 1024
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(args.prompt)}?width=${w}&height=${h}&nologo=true`
+      const r = await fetch(url, { signal: AbortSignal.timeout(90_000) })
+      if (!r.ok) throw new Error(`pollinations HTTP ${r.status}`)
+      buf = Buffer.from(await r.arrayBuffer())
+      mime = r.headers.get('content-type') || 'image/png'
+    } else if (provider === 'cloudflare') {
+      const acc = process.env.CF_ACCOUNT_ID, tok = process.env.CF_API_TOKEN
+      if (!acc || !tok) throw new Error('Cloudflare provider needs CF_ACCOUNT_ID + CF_API_TOKEN env vars (free tier, no card — cloudflare.com)')
+      const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${acc}/ai/run/@cf/black-forest-labs/flux-1-schnell`, {
+        method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: args.prompt }),
+        signal: AbortSignal.timeout(90_000),
+      })
+      const d: any = await r.json()
+      if (!d?.result?.image) throw new Error(d?.errors?.[0]?.message || 'cloudflare returned no image')
+      buf = Buffer.from(d.result.image, 'base64')
+    } else {
+      const key = (await loadBrainConfig()).apiKey
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${key}`
+      const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: args.prompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }),
+        signal: AbortSignal.timeout(60_000),
+      })
+      const data: any = await res.json()
+      const part = data?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data)
+      if (!part) throw new Error(data?.error?.message || 'no image returned')
+      buf = Buffer.from(part.inlineData.data, 'base64')
+      mime = part.inlineData.mimeType || 'image/png'
+    }
     const id = randomUUID()
     const dir = process.env.OTTO_DRIVE_DIR || path.join(process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace', 'drive')
     await fs.mkdir(dir, { recursive: true })
@@ -2230,12 +2254,112 @@ async function toolImageGenerate(args: { prompt: string }) {
     return {
       name: 'image_generate',
       ok: true,
-      summary: `Generated an image for "${args.prompt}" and saved it to Otto Drive.`,
-      data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}`, prompt: args.prompt, mime, size: buf.length },
-      activity: { action: 'image.generate', target: rec.id, summary: `Otto generated an image for "${args.prompt.slice(0, 60)}".`, riskTier: 'low' as const },
+      summary: `Generated an image (${provider}) for "${args.prompt}" and saved it to Otto Drive.`,
+      data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}`, prompt: args.prompt, provider, mime, size: buf.length },
+      activity: { action: 'image.generate', target: rec.id, summary: `Otto generated an image (${provider}) for "${args.prompt.slice(0, 60)}".`, riskTier: 'low' as const },
     }
   } catch (e) {
-    return { name: 'image_generate', ok: false, summary: `Image generation failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+    return { name: 'image_generate', ok: false, summary: `Image generation (${provider}) failed: ${(e as Error).message}`, data: { error: (e as Error).message, provider } }
+  }
+}
+
+// ─── Music composition (keyless — Tone.js pattern → HTML player → Drive) ────
+// Fills the Muse gap WITHOUT a paid API. Otto composes a Tone.js/Web Audio
+// pattern for a vibe/genre, wraps it in a self-contained HTML player, and saves
+// it to Drive. The user opens the HTML in any browser → the music plays.
+// (Strudel/Tone.js-style generative music, browser-rendered.)
+async function toolMusicCompose(args: { vibe: string; genre?: string; durationSec?: number }) {
+  try {
+    const genre = args.genre || 'lo-fi'
+    const dur = Math.min(60, Math.max(8, args.durationSec || 16))
+    // Otto (the brain) is expected to have written a Tone.js pattern as the vibe;
+    // here we scaffold a deterministic generative pattern so the tool always
+    // produces audible music even if the brain didn't pre-compose notes.
+    const html = `<!doctype html><html><head><meta charset=utf-8><title>Otto · ${genre} · ${args.vibe}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<style>body{margin:0;background:#0b0b12;color:#e8e8f0;font:14px system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}
+button{padding:12px 22px;border-radius:999px;border:none;background:#b794f4;color:#1a1030;font-weight:700;font-size:15px;cursor:pointer}
+h2{font-weight:600}</style></head>
+<body><h2>🎵 ${genre} — ${args.vibe}</h2><p style="color:#8a8aa0">Made by Otto · ${dur}s</p><button id=p>▶ Play</button>
+<script>
+const g=${JSON.stringify(genre)},v=${JSON.stringify(args.vibe)};
+const scales={lofi:[0,2,3,5,7,8,10],ambient:[0,2,4,7,9],techno:[0,3,5,7,10],jazz:[0,2,3,5,7,9,10],chill:[0,2,4,5,7,9,11]};
+const sc=scales[g]||scales.lofi;
+document.getElementById('p').onclick=async()=>{
+await Tone.start();const btn=document.getElementById('p');btn.textContent='⏹ Stop';btn.disabled=true;
+const synth=new Tone.PolySynth(Tone.Synth,{oscillator:{type:g==='ambient'?'sine':'triangle'},envelope:{attack:0.4,decay:0.4,sustain:0.3,release:1.4}}).toDestination();
+synth.volume.value=-12;
+const rev=new Tone.Reverb({decay:4,wet:0.4}).toDestination();synth.connect(rev);
+const root=261.63;let i=0;
+const seq=new Tone.Loop((time)=>{const deg=sc[i%sc.length]+(Math.random()<0.2?12:0);const f=root*Math.pow(2,deg/12);synth.triggerAttackRelease(f,'8n',time);i++;},g==='techno'?'8n':'4n');
+Tone.Transport.bpm.value=g==='techno'?124:g==='lofi'?78:90;
+seq.start(0);Tone.Transport.start();
+setTimeout(()=>{Tone.Transport.stop();seq.dispose();synth.dispose();btn.textContent='▶ Play';btn.disabled=false;},${dur*1000});
+};
+</script></body></html>`
+    const id = randomUUID()
+    const dir = process.env.OTTO_DRIVE_DIR || path.join(process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace', 'drive')
+    await fs.mkdir(dir, { recursive: true })
+    const safe = (args.vibe.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 30) || 'track')
+    const diskPath = path.join(dir, `${id}-${safe}-${genre}.html`)
+    await fs.writeFile(diskPath, html, 'utf-8')
+    const rec = await db.driveFile.create({ data: { id, name: `${safe}-${genre}.html`, mime: 'text/html', size: Buffer.byteLength(html), path: diskPath, uploadedBy: 'otto' } })
+    return {
+      name: 'music_compose',
+      ok: true,
+      summary: `Composed a ${genre} track for "${args.vibe}" (${dur}s) — saved an HTML player to Drive. Open it in a browser and hit Play.`,
+      data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}`, genre, vibe: args.vibe, durationSec: dur },
+      activity: { action: 'music.compose', target: rec.id, summary: `Otto composed a ${genre} track for "${args.vibe}".`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'music_compose', ok: false, summary: `Music compose failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
+// ─── Video generation (2D presentation videos via HyperFrames) ──────────────
+// Clones heygen-com/hyperframes (HTML→MP4, agent-native, Apache-2.0) into
+// vendor/hyperframes. Otto writes an HTML/CSS/GSAP composition (the HyperFrames
+// format), this tool runs `npx hyperframes render <file> --out <mp4>`, and the
+// MP4 lands in Otto Drive. Requires Node + FFmpeg on the host (hyperframes
+// bundles Puppeteer/Chrome). On Tharavad: nix profile install nixpkgs#ffmpeg.
+async function toolVideoCreate(args: { html: string; title?: string }) {
+  try {
+    if (!args.html || !args.html.trim()) return { name: 'video_create', ok: false, summary: 'Need an HTML composition.', data: { error: 'no html' } }
+    const { execFile } = await import('child_process')
+    const id = randomUUID()
+    const wsRoot = process.env.OTTO_WORKSPACE_ROOT || '/home/z/otto-workspace'
+    const projDir = path.join(wsRoot, 'hyperframes-projects')
+    await fs.mkdir(projDir, { recursive: true })
+    const safe = (args.title || 'video').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40) || 'video'
+    const inputPath = path.join(projDir, `${id}.html`)
+    const outPath = path.join(projDir, `${id}-${safe}.mp4`)
+    await fs.writeFile(inputPath, args.html, 'utf-8')
+    // Render via the published hyperframes CLI (npx fetches it). FFmpeg must be on PATH.
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile('npx', ['-y', 'hyperframes', 'render', inputPath, '--out', outPath],
+        { timeout: 300_000, maxBuffer: 4_000_000, env: { ...process.env, GIT_LFS_SKIP_SMUDGE: '1' } },
+        (err: any, stdout: string, stderr: string) => {
+          if (err) reject(new Error(`${err.message}\n${stderr.slice(-800)}`)); else resolve(stdout + stderr)
+        })
+    })
+    let stat
+    try { stat = await fs.stat(outPath) } catch { return { name: 'video_create', ok: false, summary: `Render ran but no MP4 was produced. Output:\n${stdout.slice(-600)}`, data: { error: 'no output mp4', logs: stdout.slice(-800) } } }
+    // Move the MP4 into Otto Drive.
+    const buf = await fs.readFile(outPath)
+    const driveDir = process.env.OTTO_DRIVE_DIR || path.join(wsRoot, 'drive')
+    await fs.mkdir(driveDir, { recursive: true })
+    const diskPath = path.join(driveDir, `${id}-${safe}.mp4`)
+    await fs.writeFile(diskPath, buf)
+    const rec = await db.driveFile.create({ data: { id, name: `${safe}.mp4`, mime: 'video/mp4', size: stat.size, path: diskPath, uploadedBy: 'otto' } })
+    return {
+      name: 'video_create',
+      ok: true,
+      summary: `Rendered a 2D video "${args.title || safe}" and saved it to Otto Drive (${(stat.size / 1048576).toFixed(1)} MB).`,
+      data: { driveFileId: rec.id, downloadUrl: `/api/drive/${rec.id}`, title: args.title || safe, sizeBytes: stat.size },
+      activity: { action: 'video.create', target: rec.id, summary: `Otto rendered a 2D video "${args.title || safe}".`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'video_create', ok: false, summary: `Video render failed: ${(e as Error).message}. Ensure hyperframes (npx fetches it) + ffmpeg are installed on the host.`, data: { error: (e as Error).message, hint: 'install: nix profile install nixpkgs#ffmpeg  (Tharavad)  /  apt-get install ffmpeg' } }
   }
 }
 
@@ -2698,13 +2822,41 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'image_generate',
-    description: 'Generate an image from a text prompt using Gemini image generation. The result is saved to Otto Drive (the user\'s mini-cloud) and downloadable from any device. Use for: art, album art, logos, tattoo concepts, illustrations, mood boards, design concepts — any "create a picture of X" request.',
+    description: 'Generate an image from a text prompt and save it to Otto Drive. Providers: gemini (default, uses Otto\'s key), pollinations (fully keyless, no login — good fallback), cloudflare (Flux via Cloudflare Workers AI, needs CF_ACCOUNT_ID+CF_API_TOKEN). Use for: art, album art, logos, tattoo concepts, illustrations, mood boards, design.',
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'What to draw, e.g. "a watercolor of a fox in a misty forest, soft pastels"' },
+        prompt: { type: 'string', description: 'What to draw, e.g. "a watercolor of a fox in a misty forest"' },
+        provider: { type: 'string', enum: ['gemini', 'pollinations', 'cloudflare'], description: 'Image backend. pollinations = keyless.', default: 'gemini' },
+        width: { type: 'number', description: 'Optional width (pollinations/cloudflare)', default: 1024 },
+        height: { type: 'number', description: 'Optional height (pollinations/cloudflare)', default: 1024 },
       },
       required: ['prompt'],
+    },
+  },
+  {
+    name: 'music_compose',
+    description: 'Compose a short music track (keyless — Tone.js generative pattern in an HTML player saved to Drive). Genres: lofi, ambient, techno, jazz, chill. The user opens the saved HTML in a browser and hits Play. Use for: background music, a vibe, a quick jingle, focus music. No paid API.',
+    parameters: {
+      type: 'object',
+      properties: {
+        vibe: { type: 'string', description: 'The feeling, e.g. "rainy evening study" or "sunny morning energy"' },
+        genre: { type: 'string', enum: ['lofi', 'ambient', 'techno', 'jazz', 'chill'], description: 'Genre/scale', default: 'lofi' },
+        durationSec: { type: 'number', description: 'Length in seconds (8–60)', default: 16 },
+      },
+      required: ['vibe'],
+    },
+  },
+  {
+    name: 'video_create',
+    description: 'Render a 2D presentation/explainer video from an HTML/CSS/GSAP composition using HyperFrames (heygen-com/hyperframes, vendored). Otto writes the HTML composition (animated slides, motion graphics, captions), the tool runs `hyperframes render` → MP4 → saved to Otto Drive. Great for pitch decks, explainers, launch teasers. Requires ffmpeg on the host (nix profile install nixpkgs#ffmpeg / apt-get install ffmpeg).',
+    parameters: {
+      type: 'object',
+      properties: {
+        html: { type: 'string', description: 'The full HyperFrames HTML composition (HTML + CSS + JS/GSAP animation)' },
+        title: { type: 'string', description: 'Video title (used for the Drive file name)' },
+      },
+      required: ['html'],
     },
   },
   {
@@ -3048,6 +3200,8 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'drive_list': return await toolDriveList(a as any)
       case 'drive_save': return await toolDriveSave(a as any)
       case 'image_generate': return await toolImageGenerate(a as any)
+      case 'music_compose': return await toolMusicCompose(a as any)
+      case 'video_create': return await toolVideoCreate(a as any)
       case 'image_analyze': return await toolImageAnalyze(a as any)
       case 'code_run': return await toolCodeRun(a as any)
       case 'browser_use': return await toolBrowserUse(a as any)

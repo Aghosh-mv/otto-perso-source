@@ -55,3 +55,4 @@ skills/
 # Examples / tests (not needed in production)
 examples/
 tests/
+vendor/
