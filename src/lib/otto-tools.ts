@@ -2289,10 +2289,10 @@ async function toolCodeRun(args: { language: 'javascript' | 'python'; code: stri
   const lang = (args.language || 'javascript').toLowerCase()
   if (lang === 'python') {
     const { execFile } = await import('child_process')
-    return new Promise((resolve) => {
+    return new Promise<ToolResult>((resolve) => {
       execFile(
         'python3', ['-c', args.code],
-        { timeout: 15_000, maxBuffer: 2_000_000, cwd: process.env.OTTO_WORKSPACE_ROOT || '/tmp', env: { PATH: process.env.PATH || '', HOME: process.env.HOME || '' } },
+        { timeout: 15_000, maxBuffer: 2_000_000, cwd: process.env.OTTO_WORKSPACE_ROOT || '/tmp', env: { PATH: process.env.PATH || '', HOME: process.env.HOME || '' } } as any,
         (err: any, stdout: string, stderr: string) => {
           if (err && !stdout) {
             resolve({ name: 'code_run', ok: false, summary: `Python exited ${err.code || 'error'}: ${(stderr || err.message).slice(0, 200)}`, data: { language: 'python', stderr: stderr || err.message, stdout } })
