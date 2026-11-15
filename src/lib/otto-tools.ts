@@ -461,6 +461,13 @@ async function toolWebSearch(args: { query: string; maxResults?: number }) {
 
 async function toolWebFetch(args: { url: string }) {
   try {
+    // SSRF protection — block internal/local URLs
+    const parsed = new URL(args.url)
+    const host = parsed.hostname.toLowerCase()
+    const internal = /^127\./.test(host) || /^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) || /^0\./.test(host) || host === 'localhost' || host === '[::1]'
+    if (internal) {
+      return { name: 'web_fetch', ok: false, summary: 'Blocked: internal/local URLs are not allowed (SSRF protection).', data: { error: 'ssrf_blocked', url: args.url } }
+    }
     const res = await fetch(args.url, {
       headers: { 'User-Agent': 'OttoPerso/1.0 (agent)' },
       signal: AbortSignal.timeout(15000),
@@ -2411,6 +2418,15 @@ async function toolImageAnalyze(args: { driveFileId?: string; imageUrl?: string;
 // sandbox. Otto composes code that embeds the data and runs it.
 async function toolCodeRun(args: { language: 'javascript' | 'python'; code: string }) {
   const lang = (args.language || 'javascript').toLowerCase()
+  // Security: block dangerous patterns before execution
+  const pyDangerous = /\b(import\s+os|import\s+subprocess|import\s+socket|import\s+shutil|import\s+sys|from\s+os|from\s+subprocess|from\s+socket|__import__|exec\s*\(|eval\s*\(|compile\s*\(|open\s*\(|os\.system|subprocess\.|pty\.)/i
+  const jsDangerous = /\b(constructor|process|require|global|__dirname|__filename|child_process|exports|module\.)/i
+  if (lang === 'python' && pyDangerous.test(args.code)) {
+    return { name: 'code_run', ok: false, summary: 'Python code blocked: contains restricted imports/functions (os/subprocess/socket/etc.) for security.', data: { error: 'restricted_imports', language: 'python' } }
+  }
+  if (lang === 'javascript' && jsDangerous.test(args.code)) {
+    return { name: 'code_run', ok: false, summary: 'JavaScript code blocked: contains restricted patterns (constructor/process/require/etc.) for vm escape prevention.', data: { error: 'restricted_patterns', language: 'javascript' } }
+  }
   if (lang === 'python') {
     const { execFile } = await import('child_process')
     return new Promise<ToolResult>((resolve) => {
