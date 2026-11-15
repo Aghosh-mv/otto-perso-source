@@ -1,42 +1,60 @@
-// Otto's model fallback chain — multiple Hugging Face models tried in order
-// when Gemini (primary) fails, so Otto effectively never runs out of capacity.
-// ALL models in the chain receive the SAME Otto system prompt + the SAME tool
-// catalog, so the user feels no change when the underlying model shifts — same
-// Otto, same tools, same behavior. The active model is transparent in metadata
-// only. Free HF token (HF_TOKEN), no card. The 15B+ models run on HF's
-// Inference Router (gateway) — never mounted on the Otto server.
+// Otto's model fallback chain — multiple models across MULTIPLE free providers
+// (Hugging Face + Groq + OpenRouter) tried in order when Gemini fails. Each
+// provider has its OWN rate limit, so the chain draws from 3 independent free
+// tiers — much more resilient than a single provider. ALL models receive the
+// SAME Otto system prompt + tool catalog → seamless handoff. Free tokens, no card.
 
 import { executeTool, functionDeclarations, type ToolCall, type ToolResult } from '@/lib/otto-tools'
 
-export type ChainModel = { id: string; model: string; label: string; kind?: 'router' | 'space'; spaceUrlEnv?: string }
+export type ChainModel = {
+  id: string
+  model: string
+  label: string
+  provider: 'hf' | 'groq' | 'openrouter' | 'space'
+  tokenEnv?: string   // which env var holds the API key
+  spaceUrlEnv?: string // for 'space' provider only
+}
 
-// The user's exact chain (Gemini primary, not listed here). Tried in order.
-// GLM-5.3-Flash is loaded ONLY from an HF Space (GLM_SPACE_URL env) — never via
-// the router or any external URL, per instruction. If GLM_SPACE_URL isn't set,
-// GLM is skipped (the chain continues to the next model).
+// Chain order: HF models first, then Groq (fast + generous free tier), then
+// OpenRouter (free models). Each provider is skipped if its token isn't set.
 export const FALLBACK_CHAIN: ChainModel[] = [
-  { id: 'zegrate', model: 'yimn-Aghosh/zegrate-ai', label: 'Zegrate AI' },
-  { id: 'deepseek-r1', model: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
-  { id: 'qwen3', model: 'Qwen/Qwen3-32B', label: 'Qwen3 32B' },
-  { id: 'deepseek-v4.1-flash', model: 'deepseek-ai/DeepSeek-V4.1-Flash', label: 'DeepSeek V4.1 Flash' },
-  { id: 'deepseek-v4-pro', model: 'deepseek-ai/DeepSeek-V4-Pro', label: 'DeepSeek V4 Pro' },
-  { id: 'qwen3.6-27b', model: 'Qwen/Qwen3.6-27B', label: 'Qwen3.6 27B' },
-  { id: 'kimi-k2.6', model: 'moonshotai/Kimi-K2.6', label: 'Kimi K2.6' },
-  { id: 'glm-5.3-flash', model: 'zai-org/GLM-5.3-Flash', label: 'GLM-5.3 Flash', kind: 'space', spaceUrlEnv: 'GLM_SPACE_URL' },
-  { id: 'phi-4', model: 'microsoft/Phi-4', label: 'Phi-4' },
-  { id: 'qwen3.8-27b', model: 'Qwen/Qwen3.8-27B', label: 'Qwen3.8 27B' },
+  // ── Hugging Face (HF_TOKEN) ──
+  { id: 'zegrate', model: 'yimn-Aghosh/zegrate-ai', label: 'Zegrate AI', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'deepseek-r1', model: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'qwen3', model: 'Qwen/Qwen3-32B', label: 'Qwen3 32B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'deepseek-v4.1-flash', model: 'deepseek-ai/DeepSeek-V4.1-Flash', label: 'DeepSeek V4.1 Flash', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'qwen3.6-27b', model: 'Qwen/Qwen3.6-27B', label: 'Qwen3.6 27B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'glm-5.3-flash', model: 'zai-org/GLM-5.3-Flash', label: 'GLM-5.3 Flash', provider: 'space', spaceUrlEnv: 'GLM_SPACE_URL' },
+  { id: 'phi-4', model: 'microsoft/Phi-4', label: 'Phi-4', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  { id: 'qwen3.8-27b', model: 'Qwen/Qwen3.8-27B', label: 'Qwen3.8 27B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
+  // ── Groq (GROQ_API_KEY — free, 30 RPM / 14,400/day, very fast) ──
+  { id: 'groq-llama3.3-70b', model: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', provider: 'groq', tokenEnv: 'GROQ_API_KEY' },
+  { id: 'groq-mixtral', model: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B (Groq)', provider: 'groq', tokenEnv: 'GROQ_API_KEY' },
+  { id: 'groq-gemma2-9b', model: 'gemma2-9b-it', label: 'Gemma 2 9B (Groq)', provider: 'groq', tokenEnv: 'GROQ_API_KEY' },
+  { id: 'groq-llama3.1-8b', model: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Groq)', provider: 'groq', tokenEnv: 'GROQ_API_KEY' },
+  // ── OpenRouter (OPENROUTER_API_KEY — free models, 20 RPM) ──
+  { id: 'or-llama3.3-70b', model: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B (OpenRouter)', provider: 'openrouter', tokenEnv: 'OPENROUTER_API_KEY' },
+  { id: 'or-qwen2.5-7b', model: 'qwen/qwen-2.5-7b-instruct:free', label: 'Qwen 2.5 7B (OpenRouter)', provider: 'openrouter', tokenEnv: 'OPENROUTER_API_KEY' },
+  { id: 'or-gemma2-9b', model: 'google/gemma-2-9b-it:free', label: 'Gemma 2 9B (OpenRouter)', provider: 'openrouter', tokenEnv: 'OPENROUTER_API_KEY' },
+  { id: 'or-mistral-7b', model: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B (OpenRouter)', provider: 'openrouter', tokenEnv: 'OPENROUTER_API_KEY' },
 ]
 
-const HF_ROUTER = (model: string) => `https://router.huggingface.co/hf-inference/models/${model}/v1/chat/completions`
-
-function endpointFor(m: ChainModel): string | null {
-  if (m.kind === 'space') {
-    // GLM: only from an HF Space URL — never the router or external URLs.
-    const url = process.env[m.spaceUrlEnv || '']
-    if (!url) return null // skip — no Space configured
-    return `${url.replace(/\/$/, '')}/v1/chat/completions`
+function providerEndpoint(m: ChainModel): string | null {
+  switch (m.provider) {
+    case 'hf': return `https://router.huggingface.co/hf-inference/models/${m.model}/v1/chat/completions`
+    case 'groq': return 'https://api.groq.com/openai/v1/chat/completions'
+    case 'openrouter': return 'https://openrouter.ai/api/v1/chat/completions'
+    case 'space': {
+      const url = process.env[m.spaceUrlEnv || '']
+      if (!url) return null
+      return `${url.replace(/\/$/, '')}/v1/chat/completions`
+    }
   }
-  return HF_ROUTER(m.model)
+}
+
+function providerToken(m: ChainModel): string | undefined {
+  if (m.provider === 'space') return process.env.HF_TOKEN // Space may or may not need a token
+  return process.env[m.tokenEnv || '']
 }
 
 async function hfCall(endpoint: string, body: any, token?: string): Promise<any> {
@@ -69,9 +87,9 @@ export async function hfChatWithTools(opts: {
   onThought?: (chunk: string) => void
   maxRounds?: number
 }): Promise<{ content: string; toolCalls: ToolCall[]; toolResults: ToolResult[] }> {
-  const endpoint = endpointFor(opts.entry)
-  if (!endpoint) throw new Error(`skipped (${opts.entry.label}: no Space URL configured)`)
-  const token = process.env.HF_TOKEN // optional for Spaces (router needs it)
+  const endpoint = providerEndpoint(opts.entry)
+  if (!endpoint) throw new Error(`skipped (${opts.entry.label}: no endpoint configured)`)
+  const token = providerToken(opts.entry)
   const tools = functionDeclarations().map((d) => ({ type: 'function', function: d }))
   const messages: any[] = [
     { role: 'system', content: opts.systemPrompt },
@@ -85,6 +103,8 @@ export async function hfChatWithTools(opts: {
 
   for (let round = 0; round < maxRounds; round++) {
     const body: any = { messages, max_tokens: 1024, temperature: 0.7 }
+    // Groq + OpenRouter need the model name in the body (HF has it in the URL)
+    if (opts.entry.provider === 'groq' || opts.entry.provider === 'openrouter') body.model = opts.entry.model
     if (toolsEnabled && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
     let data: any
     try {
@@ -134,9 +154,11 @@ export async function fallbackChain(opts: {
   maxRounds?: number
 }): Promise<{ content: string; toolCalls: ToolCall[]; toolResults: ToolResult[]; modelId: string; label: string }> {
   for (const m of FALLBACK_CHAIN) {
-    if (m.kind === 'space' && !process.env[m.spaceUrlEnv || '']) {
-      opts.onThought?.(`  ⊘ ${m.label}: skipped (no Space URL set)\n`)
-      continue
+    // Skip if the provider's token isn't configured
+    if (m.provider === 'space') {
+      if (!process.env[m.spaceUrlEnv || '']) { opts.onThought?.(`  ⊘ ${m.label}: skipped (no Space URL)\n`); continue }
+    } else {
+      if (!process.env[m.tokenEnv || '']) { opts.onThought?.(`  ⊘ ${m.label}: skipped (no ${m.tokenEnv})\n`); continue }
     }
     try {
       opts.onThought?.(`  → trying ${m.label}…\n`)

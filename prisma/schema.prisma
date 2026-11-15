@@ -28,7 +28,8 @@ model AutonomySetting {
 
 // ─── Tasks ─────────────────────────────────────────────────────────────────
 model Task {
-  id            String   @id @default(cuid())
+  id            String   @id
+  userId       String?
   title         String
   description   String?
   status        String   @default("queued") // queued | planning | executing | waiting_approval | done | failed | cancelled | blocked
@@ -52,7 +53,8 @@ model Task {
 
 // ─── Agents (Otto + workers) ───────────────────────────────────────────────
 model Agent {
-  id          String   @id @default(cuid())
+  id          String   @id
+  userId       String?
   name        String
   kind        String   @default("main") // main | worker | custom
   status      String   @default("idle") // idle | thinking | executing | waiting | sleeping | stopped
@@ -71,7 +73,8 @@ model Agent {
 
 // ─── Vault Notes (Obsidian-style, Markdown on disk mirrored here) ──────────
 model VaultNote {
-  id         String   @id @default(cuid())
+  id         String   @id
+  userId       String?
   title      String
   category   String   @default("general") // general | decision | preference | pattern | memory | recipe | log
   tags       String   @default("") // comma-separated
@@ -87,7 +90,8 @@ model VaultNote {
 
 // ─── Credentials (Otto sees only category + label, never the secret) ───────
 model Credential {
-  id           String   @id @default(cuid())
+  id           String   @id
+  userId       String?
   label        String
   category     String   // banking | email | social | work | cloud | api | other
   issuer       String?  // e.g. "Chase", "Gmail", "OpenAI"
@@ -117,7 +121,8 @@ model ModelProvider {
 
 // ─── Recipes (reusable automation workflows) ───────────────────────────────
 model Recipe {
-  id          String   @id @default(cuid())
+  id          String   @id
+  userId       String?
   title       String
   description String
   category    String   @default("general") // reporting | research | file | email | scheduling | devops | custom
@@ -176,7 +181,8 @@ model SystemState {
 
 // ─── Custom Bots (user-defined specialized agents) ─────────────────────────
 model CustomBot {
-  id              String   @id @default(cuid())
+  id              String   @id
+  userId       String?
   name            String
   description     String   @default("")
   systemPrompt    String   @default("")
@@ -193,7 +199,8 @@ model CustomBot {
 
 // ─── Conversations (the chat — Otto's main interface) ──────────────────────
 model Conversation {
-  id          String    @id @default(cuid())
+  id          String    @id
+  userId       String?
   title       String    @default("New conversation")
   isPinned    Boolean   @default(false)
   isArchived  Boolean   @default(false)
@@ -293,7 +300,8 @@ model InviteCode {
 // Each running Otto instance registers a device and heartbeats; the most recent
 // to hear "hey Otto" claims `isActive` and Lok lives there. Others stand down.
 model Device {
-  id          String   @id @default(cuid())
+  id          String   @id
+  userId       String?
   name        String   // user-given, e.g. "Pixel 8", "Macbook"
   kind        String   @default("desktop") // desktop | phone | tablet | web
   platform    String   @default("") // win | mac | linux | android | ios | web
@@ -310,7 +318,8 @@ model Device {
 // User-uploaded files stored on the backend, accessible from any device on the
 // account. Metadata in the DB, bytes on disk under OTTO_DRIVE_DIR.
 model DriveFile {
-  id          String   @id @default(cuid())
+  id          String   @id
+  userId       String?
   name        String   // display name
   mime        String   @default("application/octet-stream")
   size        Int      @default(0)  // bytes
@@ -325,7 +334,8 @@ model DriveFile {
 // The Otto backend ticks every minute and runs due jobs — agents that wake on
 // a schedule and do work on the SERVER, even when every user device is off.
 model ScheduledJob {
-  id              String    @id @default(cuid())
+  id              String    @id
+  userId       String?
   name            String
   botName         String    // user-created bot that runs each tick
   prompt          String    // what it does each run
