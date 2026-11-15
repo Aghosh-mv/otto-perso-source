@@ -22,8 +22,8 @@ function LoginInner() {
   const search = useSearchParams()
   const callbackUrl = search.get('callbackUrl') || '/'
 
-  const [email, setEmail] = useState('owner@otto.local')
-  const [password, setPassword] = useState('otto-perso-owner')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
 
@@ -127,13 +127,6 @@ function LoginInner() {
         </form>
 
         <div className="mt-4 text-center text-[11px] text-muted-foreground">
-          Default owner:&nbsp;
-          <code className="font-mono">owner@otto.local</code>
-          &nbsp;/&nbsp;
-          <code className="font-mono">otto-perso-owner</code>
-        </div>
-
-        <div className="mt-2 text-center text-[11px] text-muted-foreground">
           New here?{' '}
           <button
             onClick={() => router.push('/register')}
