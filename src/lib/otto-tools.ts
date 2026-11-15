@@ -433,6 +433,20 @@ async function toolWebSearch(args: { query: string; maxResults?: number }) {
       }
     }
 
+    // Fallback: if DuckDuckGo returned few results, try SerpAPI (Google results)
+    if (results.length < 2 && process.env.SERP_API_KEY) {
+      try {
+        const serpUrl = `https://serpapi.com/search?engine=google&q=${encodeURIComponent(args.query)}&api_key=${process.env.SERP_API_KEY}&num=${args.maxResults || 5}`
+        const serpRes = await fetch(serpUrl, { signal: AbortSignal.timeout(15000) })
+        const serpData = await serpRes.json()
+        if (serpData.organic_results) {
+          for (const r of serpData.organic_results.slice(0, (args.maxResults || 5) - results.length)) {
+            results.push({ title: r.title, url: r.link, snippet: r.snippet || '' })
+          }
+        }
+      } catch { /* SerpAPI failed — keep DuckDuckGo results */ }
+    }
+
     const text = results.length > 0
       ? results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet.slice(0, 200)}`).join('\n\n')
       : 'No instant results. Try a more specific query or use web_fetch on a specific URL.'
@@ -2642,6 +2656,33 @@ async function toolOutboundResolve(args: { channel: 'email' | 'sms'; to: string;
   } catch (e) { return { name: 'outbound_resolve', ok: false, summary: `Outbound resolve failed: ${(e as Error).message}`, data: { error: (e as Error).message } } }
 }
 
+// ─── Web scrape (ScrapeGraphAI — structured page extraction) ────────────────
+// Better than raw web_fetch for complex/dynamic pages. Returns clean extracted
+// text. Requires SCRAPEGRAPH_API_KEY (free, no card).
+async function toolWebScrape(args: { url: string }) {
+  const key = process.env.SCRAPEGRAPH_API_KEY
+  if (!key) return { name: 'web_scrape', ok: false, summary: 'web_scrape needs SCRAPEGRAPH_API_KEY. Set it in .env.', data: { error: 'no key' } }
+  try {
+    const res = await fetch('https://api.scrapegraphai.com/v1/scrape', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ website_url: args.url }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    const data: any = await res.json()
+    const content = data.content || data.text || data.result || JSON.stringify(data).slice(0, 8000)
+    return {
+      name: 'web_scrape',
+      ok: true,
+      summary: `Scraped ${args.url} — ${content.length} chars extracted.`,
+      data: { url: args.url, content: String(content).slice(0, 8000) },
+      activity: { action: 'web.scrape', target: args.url, summary: `Otto scraped ${args.url} via ScrapeGraphAI.`, riskTier: 'low' as const },
+    }
+  } catch (e) {
+    return { name: 'web_scrape', ok: false, summary: `Scrape failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
+  }
+}
+
 export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'vault_read',
@@ -3056,6 +3097,17 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'web_scrape',
+    description: 'Scrape a web page with ScrapeGraphAI for clean, structured text extraction. Better than web_fetch for complex/dynamic pages (JavaScript-heavy, SPAs, news articles). Requires SCRAPEGRAPH_API_KEY. Use when web_fetch returns messy HTML or the page needs JavaScript rendering.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'The URL to scrape' },
+      },
+      required: ['url'],
+    },
+  },
+  {
     name: 'file_read',
     description: 'Read the contents of a file from Otto\'s sandboxed workspace. Returns up to 12000 chars (truncated if longer). Path is relative to /home/z/otto-workspace/.',
     parameters: {
@@ -3340,6 +3392,7 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
       case 'agent_spawn_multi': return await toolAgentSpawnMulti(a as any)
       case 'web_search': return await toolWebSearch(a as any)
       case 'web_fetch': return await toolWebFetch(a as any)
+      case 'web_scrape': return await toolWebScrape(a as any)
       case 'activity_log': return await toolActivityLog(a as any)
       case 'autonomy_get': return await toolAutonomyGet()
       case 'recipe_list': return await toolRecipeList(a as any)
