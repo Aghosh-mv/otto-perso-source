@@ -8,32 +8,49 @@
 
 import { executeTool, functionDeclarations, type ToolCall, type ToolResult } from '@/lib/otto-tools'
 
-export type ChainModel = { id: string; model: string; label: string }
+export type ChainModel = { id: string; model: string; label: string; kind?: 'router' | 'space'; spaceUrlEnv?: string }
 
-// Order = priority. Each is tried in turn until one responds. Edit freely.
+// The user's exact chain (Gemini primary, not listed here). Tried in order.
+// GLM-5.3-Flash is loaded ONLY from an HF Space (GLM_SPACE_URL env) — never via
+// the router or any external URL, per instruction. If GLM_SPACE_URL isn't set,
+// GLM is skipped (the chain continues to the next model).
 export const FALLBACK_CHAIN: ChainModel[] = [
   { id: 'zegrate', model: 'yimn-Aghosh/zegrate-ai', label: 'Zegrate AI' },
-  { id: 'llama3.3-70b', model: 'meta-llama/Llama-3.3-70B-Instruct', label: 'Llama 3.3 70B' },
-  { id: 'qwen2.5-72b', model: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen 2.5 72B' },
-  { id: 'mistral-nemo', model: 'mistralai/Mistral-Nemo-Instruct-2407', label: 'Mistral Nemo' },
-  { id: 'gemma2-9b', model: 'google/gemma-2-9b-it', label: 'Gemma 2 9B' },
-  { id: 'phi3.5', model: 'microsoft/Phi-3.5-mini-instruct', label: 'Phi 3.5' },
-  { id: 'hermes3-8b', model: 'NousResearch/Hermes-3-Llama-3.1-8B', label: 'Hermes 3 8B' },
-  { id: 'zephyr-7b', model: 'HuggingFaceH4/zephyr-7b-beta', label: 'Zephyr 7B' },
+  { id: 'deepseek-r1', model: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' },
+  { id: 'qwen3', model: 'Qwen/Qwen3-32B', label: 'Qwen3 32B' },
+  { id: 'deepseek-v4.1-flash', model: 'deepseek-ai/DeepSeek-V4.1-Flash', label: 'DeepSeek V4.1 Flash' },
+  { id: 'deepseek-v4-pro', model: 'deepseek-ai/DeepSeek-V4-Pro', label: 'DeepSeek V4 Pro' },
+  { id: 'qwen3.6-27b', model: 'Qwen/Qwen3.6-27B', label: 'Qwen3.6 27B' },
+  { id: 'kimi-k2.6', model: 'moonshotai/Kimi-K2.6', label: 'Kimi K2.6' },
+  { id: 'glm-5.3-flash', model: 'zai-org/GLM-5.3-Flash', label: 'GLM-5.3 Flash', kind: 'space', spaceUrlEnv: 'GLM_SPACE_URL' },
+  { id: 'phi-4', model: 'microsoft/Phi-4', label: 'Phi-4' },
+  { id: 'qwen3.8-27b', model: 'Qwen/Qwen3.8-27B', label: 'Qwen3.8 27B' },
 ]
 
 const HF_ROUTER = (model: string) => `https://router.huggingface.co/hf-inference/models/${model}/v1/chat/completions`
 
-async function hfCall(token: string, model: string, body: any): Promise<any> {
-  const res = await fetch(HF_ROUTER(model), {
+function endpointFor(m: ChainModel): string | null {
+  if (m.kind === 'space') {
+    // GLM: only from an HF Space URL — never the router or external URLs.
+    const url = process.env[m.spaceUrlEnv || '']
+    if (!url) return null // skip — no Space configured
+    return `${url.replace(/\/$/, '')}/v1/chat/completions`
+  }
+  return HF_ROUTER(m.model)
+}
+
+async function hfCall(endpoint: string, body: any, token?: string): Promise<any> {
+  const headers: any = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
   })
   if (!res.ok) {
     const t = await res.text().catch(() => '')
-    const err: any = new Error(`HF ${model} HTTP ${res.status}: ${t.slice(0, 120)}`)
+    const err: any = new Error(`HTTP ${res.status}: ${t.slice(0, 120)}`)
     err.status = res.status
     throw err
   }
@@ -43,7 +60,7 @@ async function hfCall(token: string, model: string, body: any): Promise<any> {
 // One model, full tool-calling loop (OpenAI-style). Gracefully degrades to
 // text-only if the model rejects tools.
 export async function hfChatWithTools(opts: {
-  model: string
+  entry: ChainModel
   systemPrompt: string
   history: { role: 'user' | 'assistant'; content: string }[]
   userMessage: string
@@ -52,8 +69,9 @@ export async function hfChatWithTools(opts: {
   onThought?: (chunk: string) => void
   maxRounds?: number
 }): Promise<{ content: string; toolCalls: ToolCall[]; toolResults: ToolResult[] }> {
-  const token = process.env.HF_TOKEN
-  if (!token) throw new Error('HF_TOKEN not set')
+  const endpoint = endpointFor(opts.entry)
+  if (!endpoint) throw new Error(`skipped (${opts.entry.label}: no Space URL configured)`)
+  const token = process.env.HF_TOKEN // optional for Spaces (router needs it)
   const tools = functionDeclarations().map((d) => ({ type: 'function', function: d }))
   const messages: any[] = [
     { role: 'system', content: opts.systemPrompt },
@@ -70,12 +88,12 @@ export async function hfChatWithTools(opts: {
     if (toolsEnabled && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
     let data: any
     try {
-      data = await hfCall(token, opts.model, body)
+      data = await hfCall(endpoint, body, token)
     } catch (e: any) {
       if (toolsEnabled && tools.length && /tool|function|not.*support|400|422/i.test(String(e.message) + String(e.status))) {
         toolsEnabled = false
         const b2 = { ...body }; delete b2.tools; delete b2.tool_choice
-        data = await hfCall(token, opts.model, b2)
+        data = await hfCall(endpoint, b2, token)
       } else { throw e }
     }
     const msg = data?.choices?.[0]?.message
@@ -116,9 +134,13 @@ export async function fallbackChain(opts: {
   maxRounds?: number
 }): Promise<{ content: string; toolCalls: ToolCall[]; toolResults: ToolResult[]; modelId: string; label: string }> {
   for (const m of FALLBACK_CHAIN) {
+    if (m.kind === 'space' && !process.env[m.spaceUrlEnv || '']) {
+      opts.onThought?.(`  ⊘ ${m.label}: skipped (no Space URL set)\n`)
+      continue
+    }
     try {
       opts.onThought?.(`  → trying ${m.label}…\n`)
-      const r = await hfChatWithTools({ ...opts, model: m.model })
+      const r = await hfChatWithTools({ ...opts, entry: m })
       return { ...r, modelId: m.id, label: m.label }
     } catch (e: any) {
       opts.onThought?.(`  ✗ ${m.label}: ${String(e?.message || e).slice(0, 80)}\n`)
