@@ -10,7 +10,7 @@ export type ChainModel = {
   id: string
   model: string
   label: string
-  provider: 'hf' | 'groq' | 'openrouter' | 'space'
+  provider: 'hf' | 'groq' | 'openrouter' | 'zai' | 'space'
   tokenEnv?: string   // which env var holds the API key
   spaceUrlEnv?: string // for 'space' provider only
 }
@@ -24,7 +24,7 @@ export const FALLBACK_CHAIN: ChainModel[] = [
   { id: 'qwen3', model: 'Qwen/Qwen3-32B', label: 'Qwen3 32B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
   { id: 'deepseek-v4.1-flash', model: 'deepseek-ai/DeepSeek-V4.1-Flash', label: 'DeepSeek V4.1 Flash', provider: 'hf', tokenEnv: 'HF_TOKEN' },
   { id: 'qwen3.6-27b', model: 'Qwen/Qwen3.6-27B', label: 'Qwen3.6 27B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
-  { id: 'glm-5.3-flash', model: 'zai-org/GLM-5.3-Flash', label: 'GLM-5.3 Flash', provider: 'space', spaceUrlEnv: 'GLM_SPACE_URL' },
+  { id: 'glm-5.3-flash', model: 'glm-4-flash', label: 'GLM-4 Flash (Z.ai)', provider: 'zai', tokenEnv: 'GLM_API_KEY' },
   { id: 'phi-4', model: 'microsoft/Phi-4', label: 'Phi-4', provider: 'hf', tokenEnv: 'HF_TOKEN' },
   { id: 'qwen3.8-27b', model: 'Qwen/Qwen3.8-27B', label: 'Qwen3.8 27B', provider: 'hf', tokenEnv: 'HF_TOKEN' },
   // ── Groq (GROQ_API_KEY — free, 30 RPM / 14,400/day, very fast) ──
@@ -44,16 +44,11 @@ function providerEndpoint(m: ChainModel): string | null {
     case 'hf': return `https://router.huggingface.co/hf-inference/models/${m.model}/v1/chat/completions`
     case 'groq': return 'https://api.groq.com/openai/v1/chat/completions'
     case 'openrouter': return 'https://openrouter.ai/api/v1/chat/completions'
-    case 'space': {
-      const url = process.env[m.spaceUrlEnv || '']
-      if (!url) return null
-      return `${url.replace(/\/$/, '')}/v1/chat/completions`
-    }
+    case 'zai': return 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
   }
 }
 
 function providerToken(m: ChainModel): string | undefined {
-  if (m.provider === 'space') return process.env.HF_TOKEN // Space may or may not need a token
   return process.env[m.tokenEnv || '']
 }
 
@@ -104,7 +99,7 @@ export async function hfChatWithTools(opts: {
   for (let round = 0; round < maxRounds; round++) {
     const body: any = { messages, max_tokens: 1024, temperature: 0.7 }
     // Groq + OpenRouter need the model name in the body (HF has it in the URL)
-    if (opts.entry.provider === 'groq' || opts.entry.provider === 'openrouter') body.model = opts.entry.model
+    if (opts.entry.provider === 'groq' || opts.entry.provider === 'openrouter' || opts.entry.provider === 'zai') body.model = opts.entry.model
     if (toolsEnabled && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
     let data: any
     try {
@@ -155,11 +150,7 @@ export async function fallbackChain(opts: {
 }): Promise<{ content: string; toolCalls: ToolCall[]; toolResults: ToolResult[]; modelId: string; label: string }> {
   for (const m of FALLBACK_CHAIN) {
     // Skip if the provider's token isn't configured
-    if (m.provider === 'space') {
-      if (!process.env[m.spaceUrlEnv || '']) { opts.onThought?.(`  ⊘ ${m.label}: skipped (no Space URL)\n`); continue }
-    } else {
-      if (!process.env[m.tokenEnv || '']) { opts.onThought?.(`  ⊘ ${m.label}: skipped (no ${m.tokenEnv})\n`); continue }
-    }
+    if (!process.env[m.tokenEnv || '']) { opts.onThought?.(`  ⊘ ${m.label}: skipped (no ${m.tokenEnv})\n`); continue }
     try {
       opts.onThought?.(`  → trying ${m.label}…\n`)
       const r = await hfChatWithTools({ ...opts, entry: m })
