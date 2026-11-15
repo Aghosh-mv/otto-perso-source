@@ -45,6 +45,7 @@ function providerEndpoint(m: ChainModel): string | null {
     case 'groq': return 'https://api.groq.com/openai/v1/chat/completions'
     case 'openrouter': return 'https://openrouter.ai/api/v1/chat/completions'
     case 'zai': return 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+    default: return null
   }
 }
 
