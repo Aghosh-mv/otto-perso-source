@@ -2554,6 +2554,7 @@ async function toolBrowserUse(args: { action: string; url?: string; selector?: s
         return { name: 'browser_use', ok: false, summary: `Unknown action "${args.action}". Use: navigate|click|type|press|extract|title|screenshot|eval|close.`, data: { error: 'unknown action' } }
     }
   } catch (e) {
+    _browserPage = null // BUG FIX: reset stale page on error so next call starts fresh
     return { name: 'browser_use', ok: false, summary: `Browser action failed: ${(e as Error).message}`, data: { error: (e as Error).message } }
   }
 }
@@ -3377,7 +3378,19 @@ export const TOOL_DEFS: ToolDef[] = [
 ]
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────
-export async function executeTool(call: ToolCall): Promise<ToolResult> {
+// High-risk tools require L3+ autonomy (Chosen Edits) — hard gate, not just prompt.
+const HIGH_RISK_TOOLS = new Set(['browser_use', 'code_run', 'payment_charge', 'outbound_resolve'])
+
+export async function executeTool(call: ToolCall, autonomyLevel?: number): Promise<ToolResult> {
+  // Hard gate: high-risk tools blocked below L3
+  if (HIGH_RISK_TOOLS.has(call.name) && (autonomyLevel ?? 2) < 3) {
+    return {
+      name: call.name,
+      ok: false,
+      summary: `Blocked: "${call.name}" requires autonomy Level 3+ (Chosen Edits). Current: L${autonomyLevel ?? 2}. Ask the user to raise autonomy or approve this action.`,
+      data: { error: 'autonomy_gate', requiredLevel: 3, currentLevel: autonomyLevel ?? 2 },
+    }
+  }
   const a = call.args || {}
   try {
     switch (call.name) {

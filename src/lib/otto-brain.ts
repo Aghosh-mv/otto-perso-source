@@ -183,6 +183,7 @@ export interface ChatOptions {
   onToolCall?: (call: ToolCall) => void
   onToolResult?: (result: ToolResult) => void
   maxToolRounds?: number  // default 5
+  autonomyLevel?: number  // 1-5, gates high-risk tools
 }
 
 export interface ChatResult {
@@ -325,7 +326,7 @@ async function streamGeminiWithTools(opts: ChatOptions): Promise<ChatResult> {
       // Stream a thought that Otto is acting
       opts.onThought?.(`\n\n▸ Calling tool: ${fc.name}(${JSON.stringify(fc.args).slice(0, 200)})\n`)
 
-      const toolResult = await executeTool(call)
+      const toolResult = await executeTool(call, opts.autonomyLevel)
       allToolResults.push(toolResult)
       opts.onToolResult?.(toolResult)
 
@@ -340,7 +341,7 @@ async function streamGeminiWithTools(opts: ChatOptions): Promise<ChatResult> {
               summary: toolResult.activity.summary,
               riskTier: toolResult.activity.riskTier,
               undoable: toolResult.activity.undoable ?? false,
-              autonomyLevel: 2,
+              autonomyLevel: opts.autonomyLevel || 2,
             },
           })
         } catch {}

@@ -196,6 +196,7 @@ export async function POST(req: Request) {
           systemPrompt,
           history,
           userMessage: lastMsg?.content ?? '',
+          autonomyLevel: convo.autonomyLevel,
           onToken: (t) => send({ type: 'token', text: t }),
           onThought: (t) => send({ type: 'thought', text: t }),
           onToolCall: (c) => {
